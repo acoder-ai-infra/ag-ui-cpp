@@ -4,7 +4,7 @@
 [![C++17](https://img.shields.io/badge/C++-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![CMake](https://img.shields.io/badge/CMake-3.10+-064F8C.svg)](https://cmake.org/)
 
-A production-ready C++ implementation of the AG-UI protocol, providing a complete SDK for AI Agent interaction with applications. This SDK implements all features, protocols, and specifications defined in the AG-UI protocol.
+A production-ready C++ implementation of the [AG-UI Protocol](https://github.com/ag-ui/protocol), providing a complete SDK for AI Agent interaction with applications. This SDK implements all features, protocols, and specifications defined in the AG-UI protocol.
 
 ## ✨ Features
 
@@ -45,7 +45,7 @@ sudo apt-get install nlohmann-json3-dev libcurl4-openssl-dev
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/ag-ui-cpp.git
+git clone https://github.com/acoder-ai-infra/ag-ui-cpp.git
 cd ag-ui-cpp
 
 # Create build directory
