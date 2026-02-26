@@ -4,11 +4,6 @@
 
 namespace agui {
 
-/**
- * @brief HTTP 请求构建器（测试工具类）
- * 
- * 用于在测试中方便地构建 HttpRequest 对象
- */
 class HttpRequestBuilder {
 public:
     HttpRequestBuilder() = default;
