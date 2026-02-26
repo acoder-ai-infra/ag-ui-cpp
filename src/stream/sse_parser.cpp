@@ -1,6 +1,6 @@
-#include "agenui_sse_parser.h"
+#include "sse_parser.h"
 
-namespace agenui {
+namespace agui {
 
 SseParser::SseParser() {}
 
@@ -108,4 +108,4 @@ void SseParser::finishEvent() {
     }
 }
 
-}  // namespace agenui
+}  // namespace agui

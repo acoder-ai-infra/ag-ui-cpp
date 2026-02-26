@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace agenui {
+namespace agui {
 
 // Type aliases
 using AgentId = std::string;
@@ -172,4 +172,4 @@ public:
     RunAgentParams& addSubscriber(std::shared_ptr<IAgentSubscriber> subscriber);
 };
 
-}  // namespace agenui
+}  // namespace agui

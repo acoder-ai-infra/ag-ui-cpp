@@ -4,7 +4,7 @@
 #include <string>
 #include <queue>
 
-namespace agenui {
+namespace agui {
 
 /**
  * @brief AG-UI SSE parser
@@ -85,4 +85,4 @@ private:
     std::string _currentData;
 };
 
-}  // namespace agenui
+}  // namespace agui

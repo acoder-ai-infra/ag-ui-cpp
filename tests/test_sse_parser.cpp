@@ -1,9 +1,9 @@
-#include "stream/agenui_sse_parser.h"
+#include "stream/sse_parser.h"
 #include <cassert>
 #include <iostream>
 #include <string>
 
-using namespace agenui;
+using namespace agui;
 
 // Simple test framework
 int g_test_count = 0;

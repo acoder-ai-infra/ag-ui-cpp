@@ -8,11 +8,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include "core/agenui_error.h"
-#include "core/agenui_event.h"
-#include "core/agenui_session_types.h"
+#include "core/error.h"
+#include "core/event.h"
+#include "core/session_types.h"
 
-namespace agenui {
+namespace agui {
 
 class IMiddleware;
 class MiddlewareChain;
@@ -212,4 +212,4 @@ private:
     int m_timeoutMs;
 };
 
-}  // namespace agenui
+}  // namespace agui

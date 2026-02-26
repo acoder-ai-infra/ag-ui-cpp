@@ -1,9 +1,9 @@
-#include "http/agenui_http_service.h"
+#include "http/http_service.h"
 #include <iostream>
 #include <thread>
 #include <curl/curl.h>
 
-namespace agenui {
+namespace agui {
 
 std::unique_ptr<IHttpService> HttpServiceFactory::createCurlService() {
     return std::make_unique<HttpService>();
@@ -186,12 +186,6 @@ void HttpService::cancelRequest(const std::string& requestId) {
     }
 }
 
-// Internal Implementation Methods
-
-HttpResponse HttpService::executeRequest(const HttpRequest& request) {
-    
-}
-
 void HttpService::setupCurlOptions(CURL* curl, const HttpRequest& request, struct curl_slist** headers) {
     // Set URL
     curl_easy_setopt(curl, CURLOPT_URL, request.url.c_str());
@@ -313,4 +307,4 @@ bool HttpService::parseUrl(const std::string& url, std::string& scheme, std::str
     return true;
 }
 
-}  // namespace agenui
+}  // namespace agui

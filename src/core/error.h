@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace agenui {
+namespace agui {
 
 enum class ErrorType { Config, Network, Parse, Execution, Timeout, Validation, State, Unknown };
 
@@ -197,10 +197,10 @@ public:
     }
 };
 
-#define AGENUI_ERROR(type, code, message) \
-    agenui::AgentError::type(code, message).addStackFrame(__FUNCTION__, __FILE__, __LINE__)
+#define AGUI_ERROR(type, code, message) \
+    agui::AgentError::type(code, message).addStackFrame(__FUNCTION__, __FILE__, __LINE__)
 
-#define AGENUI_ERROR_WITH_CONTEXT(type, code, message, key, value) \
-    agenui::AgentError::type(code, message).addStackFrame(__FUNCTION__, __FILE__, __LINE__).addContext(key, value)
+#define AGUI_ERROR_WITH_CONTEXT(type, code, message, key, value) \
+    agui::AgentError::type(code, message).addStackFrame(__FUNCTION__, __FILE__, __LINE__).addContext(key, value)
 
-}  // namespace agenui
+}  // namespace agui

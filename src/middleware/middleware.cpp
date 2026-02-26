@@ -1,11 +1,11 @@
-#include "middleware/agenui_middleware.h"
+#include "middleware/middleware.h"
 
 #include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <thread>
 
-namespace agenui {
+namespace agui {
 
 void MiddlewareChain::addMiddleware(std::shared_ptr<IMiddleware> middleware) {
     if (middleware) {
@@ -186,4 +186,4 @@ RunAgentInput TimeoutMiddleware::onRequest(const RunAgentInput& input, Middlewar
     return input;
 }
 
-}  // namespace agenui
+}  // namespace agui

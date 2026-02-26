@@ -15,14 +15,14 @@
 #include <thread>
 #include <chrono>
 
-#include "http/agenui_http_service.h"
-#include "agent/agenui_http_agent.h"
-#include "middleware/agenui_middleware.h"
-#include "core/agenui_error.h"
-#include "core/agenui_event.h"
+#include "http/http_service.h"
+#include "agent/http_agent.h"
+#include "middleware/middleware.h"
+#include "core/error.h"
+#include "core/event.h"
 #include "http_request_builder.h"
 
-using namespace agenui;
+using namespace agui;
 
 
 void log(const std::string& message) {

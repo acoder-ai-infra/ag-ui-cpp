@@ -5,17 +5,17 @@
 #include <string>
 #include <vector>
 
-#include "agenui_agent.h"
-#include "core/agenui_event.h"
-#include "core/agenui_session_types.h"
-#include "core/agenui_subscriber.h"
-#include "http/agenui_http_service.h"
-#include "stream/agenui_sse_parser.h"
-#include "middleware/agenui_middleware.h"
+#include "agent.h"
+#include "core/event.h"
+#include "core/session_types.h"
+#include "core/subscriber.h"
+#include "http/http_service.h"
+#include "stream/sse_parser.h"
+#include "middleware/middleware.h"
 
 #include <nlohmann/json.hpp>
 
-namespace agenui {
+namespace agui {
 
 /**
  * @brief HTTP Agent implementation for communicating with Agent server via HTTP/SSE
@@ -204,4 +204,4 @@ private:
     MiddlewareChain _middlewareChain;
 };
 
-}  // namespace agenui
+}  // namespace agui

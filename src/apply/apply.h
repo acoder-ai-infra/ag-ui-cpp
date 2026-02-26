@@ -9,12 +9,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include "core/agenui_error.h"
-#include "core/agenui_event.h"
-#include "core/agenui_session_types.h"
-#include "core/agenui_subscriber.h"
+#include "core/error.h"
+#include "core/event.h"
+#include "core/session_types.h"
+#include "core/subscriber.h"
 
-namespace agenui {
+namespace agui {
 
 /**
  * @brief Apply module - Core event processing utilities
@@ -42,4 +42,4 @@ public:
     static Message createToolMessage(const ToolCallId& toolCallId, const std::string& content);
 };
 
-}  // namespace agenui
+}  // namespace agui

@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string>
 
-namespace agenui {
+namespace agui {
 
 /**
  * @brief UUID generator
@@ -41,4 +41,4 @@ private:
     static std::atomic<uint32_t> _counter;
 };
 
-}  // namespace agenui
+}  // namespace agui

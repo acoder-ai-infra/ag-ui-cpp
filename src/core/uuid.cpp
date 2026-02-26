@@ -1,10 +1,10 @@
-#include "agenui_uuid.h"
+#include "uuid.h"
 
 #include <chrono>
 #include <cstdio>
 #include <random>
 
-namespace agenui {
+namespace agui {
 
 // Initialize static member
 std::atomic<uint32_t> UuidGenerator::_counter(0);
@@ -50,4 +50,4 @@ std::string UuidGenerator::generate() {
     return std::string(uuid);
 }
 
-}  // namespace agenui
+}  // namespace agui

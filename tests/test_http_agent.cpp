@@ -10,13 +10,13 @@
 #include <memory>
 #include <vector>
 
-#include "agent/agenui_http_agent.h"
-#include "core/agenui_error.h"
-#include "core/agenui_event.h"
-#include "core/agenui_subscriber.h"
-#include "core/agenui_session_types.h"
+#include "agent/http_agent.h"
+#include "core/error.h"
+#include "core/event.h"
+#include "core/subscriber.h"
+#include "core/session_types.h"
 
-using namespace agenui;
+using namespace agui;
 
 
 void log(const std::string& message) {

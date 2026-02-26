@@ -1,9 +1,9 @@
-#include "core/agenui_state.h"
+#include "core/state.h"
 
 #include <algorithm>
 #include <sstream>
 
-namespace agenui {
+namespace agui {
 
 nlohmann::json JsonPatchOp::toJson() const {
     nlohmann::json j;
@@ -508,4 +508,4 @@ StateSnapshot StateSnapshot::fromJson(const nlohmann::json& j) {
     return snapshot;
 }
 
-}  // namespace agenui
+}  // namespace agui

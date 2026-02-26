@@ -2,11 +2,11 @@
 #include <memory>
 #include <string>
 
-#include "agent/agenui_http_agent.h"
-#include "middleware/agenui_middleware.h"
-#include "core/agenui_event.h"
+#include "agent/http_agent.h"
+#include "middleware/middleware.h"
+#include "core/event.h"
 
-using namespace agenui;
+using namespace agui;
 using namespace std;
 
 // Test Middleware implementations

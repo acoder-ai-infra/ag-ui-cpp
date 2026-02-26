@@ -5,13 +5,13 @@
 #include <memory>
 #include <string>
 
-#include "core/agenui_error.h"
+#include "core/error.h"
 
 // Forward declaration
 typedef void CURL;
 struct curl_slist;
 
-namespace agenui {
+namespace agui {
 
 struct HttpResponse {
     int statusCode;
@@ -94,11 +94,6 @@ public:
 
 private:
     /**
-     * @brief Execute HTTP request (internal method)
-     */
-    HttpResponse executeRequest(const HttpRequest& request);
-
-    /**
      * @brief Setup common CURL options
      */
     void setupCurlOptions(CURL* curl, const HttpRequest& request, struct curl_slist** headers);
@@ -135,4 +130,4 @@ struct SseCallbackContext {
         : onData(std::move(callback)), cancelFlag(flag) {}
 };
 
-}  // namespace agenui
+}  // namespace agui

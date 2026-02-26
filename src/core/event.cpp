@@ -1,10 +1,10 @@
-#include "agenui_event.h"
+#include "event.h"
 
 #include <ctime>
 #include <iomanip>
 #include <sstream>
 
-namespace agenui {
+namespace agui {
 
 // BaseEventData Implementation
 
@@ -508,7 +508,7 @@ EventType EventParser::parseEventType(const std::string& typeStr) {
 
 std::unique_ptr<Event> EventParser::parse(const nlohmann::json& j) {
     if (!j.contains("type")) {
-        throw AGENUI_ERROR(parse, ErrorCode::ParseEventError, "Event JSON missing 'type' field");
+        throw AGUI_ERROR(parse, ErrorCode::ParseEventError, "Event JSON missing 'type' field");
     }
 
     std::string typeStr = j["type"];
@@ -660,4 +660,4 @@ std::string EventParser::eventTypeToString(EventType type) {
     }
 }
 
-}  // namespace agenui
+}  // namespace agui

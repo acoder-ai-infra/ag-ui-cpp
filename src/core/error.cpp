@@ -1,6 +1,6 @@
-#include "agenui_error.h"
+#include "error.h"
 
-namespace agenui {
+namespace agui {
 
 AgentError::AgentError(ErrorType type, ErrorCode code, const std::string& message, ErrorSeverity severity)
     : m_type(type), m_code(code), m_message(message), m_severity(severity), m_recoveryStrategy(RecoveryStrategy::None) {
@@ -98,4 +98,4 @@ std::string AgentError::errorTypeToString(ErrorType type) {
     }
 }
 
-}  // namespace agenui
+}  // namespace agui

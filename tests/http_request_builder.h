@@ -1,8 +1,8 @@
 #pragma once
 
-#include "http/agenui_http_service.h"
+#include "http/http_service.h"
 
-namespace agenui {
+namespace agui {
 
 /**
  * @brief HTTP 请求构建器（测试工具类）
@@ -54,4 +54,4 @@ private:
     HttpRequest m_request;
 };
 
-}  // namespace agenui
+}  // namespace agui

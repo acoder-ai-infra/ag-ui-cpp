@@ -1,8 +1,8 @@
-#include "core/agenui_subscriber.h"
+#include "core/subscriber.h"
 
 #include <algorithm>
 
-namespace agenui {
+namespace agui {
 
 // EventHandler implementation
 
@@ -514,4 +514,4 @@ void EventHandler::handleToolCallResult(const ToolCallResultEvent& event) {
     notifyMessagesChanged();
 }
 
-}  // namespace agenui
+}  // namespace agui

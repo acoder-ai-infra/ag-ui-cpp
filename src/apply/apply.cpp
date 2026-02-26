@@ -1,6 +1,6 @@
-#include "agenui_apply.h"
+#include "apply.h"
 
-namespace agenui {
+namespace agui {
 
 Message* ApplyModule::findMessageById(std::vector<Message>& messages, const MessageId& id) {
     for (auto& msg : messages) {
@@ -76,4 +76,4 @@ Message ApplyModule::createToolMessage(const ToolCallId& toolCallId, const std::
     return Message::createTool(toolCallId, content);
 }
 
-}  // namespace agenui
+}  // namespace agui

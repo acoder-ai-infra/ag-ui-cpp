@@ -1,12 +1,12 @@
-#include "agenui_http_agent.h"
+#include "http_agent.h"
 
 #include <nlohmann/json.hpp>
 #include <set>
 
-#include "core/agenui_subscriber.h"
-#include "core/agenui_uuid.h"
+#include "core/subscriber.h"
+#include "core/uuid.h"
 
-namespace agenui {
+namespace agui {
 
 // Builder Implementation
 
@@ -49,7 +49,7 @@ HttpAgent::Builder& HttpAgent::Builder::withInitialState(const nlohmann::json& s
 
 std::unique_ptr<HttpAgent> HttpAgent::Builder::build() {
     if (_url.empty()) {
-        printf("[AGenUI][ERROR] Base URL is required\n");
+        printf("[AGUI-Log][ERROR] Base URL is required\n");
         return nullptr;
     }
 
@@ -79,7 +79,7 @@ HttpAgent::HttpAgent(const std::string& baseUrl, const std::map<std::string, std
     _eventHandler = std::make_shared<EventHandler>(initialMessages, initialState, dummyInput,
                                                     std::vector<std::shared_ptr<IAgentSubscriber>>());
 
-    printf("[AGenUI][INFO] HttpAgent created with %zu initial messages\n", initialMessages.size());
+    printf("[AGUI-Log][INFO] HttpAgent created with %zu initial messages\n", initialMessages.size());
 }
 
 HttpAgent::~HttpAgent() {}
@@ -110,7 +110,7 @@ void HttpAgent::addMessage(const Message& message) {
     mutation.withMessages(msgs);
     _eventHandler->applyMutation(mutation);
 
-    printf("[AGenUI][INFO] Message added, total messages: %zu\n", msgs.size());
+    printf("[AGUI-Log][INFO] Message added, total messages: %zu\n", msgs.size());
 }
 
 void HttpAgent::setMessages(const std::vector<Message>& messages) {
@@ -118,7 +118,7 @@ void HttpAgent::setMessages(const std::vector<Message>& messages) {
     mutation.withMessages(messages);
     _eventHandler->applyMutation(mutation);
 
-    printf("[AGenUI][INFO] Messages set, total messages: %zu\n", messages.size());
+    printf("[AGUI-Log][INFO] Messages set, total messages: %zu\n", messages.size());
 }
 
 void HttpAgent::setState(const nlohmann::json& state) {
@@ -126,31 +126,31 @@ void HttpAgent::setState(const nlohmann::json& state) {
     mutation.withState(state);
     _eventHandler->applyMutation(mutation);
 
-    printf("[AGenUI][INFO] State updated\n");
+    printf("[AGUI-Log][INFO] State updated\n");
 }
 
 // Subscriber management (delegated to EventHandler)
 
 void HttpAgent::subscribe(std::shared_ptr<IAgentSubscriber> subscriber) {
     _eventHandler->addSubscriber(subscriber);
-    printf("[AGenUI][INFO] Subscriber added\n");
+    printf("[AGUI-Log][INFO] Subscriber added\n");
 }
 
 void HttpAgent::unsubscribe(std::shared_ptr<IAgentSubscriber> subscriber) {
     _eventHandler->removeSubscriber(subscriber);
-    printf("[AGenUI][INFO] Subscriber removed\n");
+    printf("[AGUI-Log][INFO] Subscriber removed\n");
 }
 
 void HttpAgent::clearSubscribers() {
     _eventHandler->clearSubscribers();
-    printf("[AGenUI][INFO] All subscribers cleared\n");
+    printf("[AGUI-Log][INFO] All subscribers cleared\n");
 }
 
 // Middleware management
 
 HttpAgent& HttpAgent::use(std::shared_ptr<IMiddleware> middleware) {
     _middlewareChain.addMiddleware(middleware);
-    printf("[AGenUI][INFO] Middleware added, total: %zu\n", _middlewareChain.size());
+    printf("[AGUI-Log][INFO] Middleware added, total: %zu\n", _middlewareChain.size());
     return *this;
 }
 
@@ -161,7 +161,7 @@ MiddlewareChain& HttpAgent::middlewareChain() {
 // runAgent implementation
 
 void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSuccess, AgentErrorCallback onError) {
-    printf("[AGenUI][INFO] Starting agent run\n");
+    printf("[AGUI-Log][INFO] Starting agent run\n");
 
     // 1. Build RunAgentInput with current messages and state
     RunAgentInput input;
@@ -173,9 +173,9 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
     input.context = params.context;
     input.forwardedProps = params.forwardedProps;
 
-    printf("[AGenUI][DEBUG] Thread ID: %s\n", input.threadId.c_str());
-    printf("[AGenUI][DEBUG] Run ID: %s\n", input.runId.c_str());
-    printf("[AGenUI][DEBUG] Messages count: %zu\n", input.messages.size());
+    printf("[AGUI-Log][DEBUG] Thread ID: %s\n", input.threadId.c_str());
+    printf("[AGUI-Log][DEBUG] Run ID: %s\n", input.runId.c_str());
+    printf("[AGUI-Log][DEBUG] Messages count: %zu\n", input.messages.size());
 
     // 2. Process request through middleware
     MiddlewareContext middlewareContext(&input, nullptr);
@@ -183,12 +183,12 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
     middlewareContext.currentState = &_eventHandler->state();
     
     if (_middlewareChain.size() > 0) {
-        printf("[AGenUI][INFO] Processing request through %zu middlewares\n", _middlewareChain.size());
+        printf("[AGUI-Log][INFO] Processing request through %zu middlewares\n", _middlewareChain.size());
         input = _middlewareChain.processRequest(input, middlewareContext);
         
         // Check if should continue
         if (!middlewareContext.shouldContinue) {
-            printf("[AGenUI][INFO] Middleware stopped execution\n");
+            printf("[AGUI-Log][INFO] Middleware stopped execution\n");
             if (onError) {
                 onError("Middleware stopped execution");
             }
@@ -200,7 +200,7 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
     for (auto& subscriber : params.subscribers) {
         _eventHandler->addSubscriber(subscriber);
     }
-    printf("[AGenUI][DEBUG] Total subscribers: %zu\n", params.subscribers.size());
+    printf("[AGUI-Log][DEBUG] Total subscribers: %zu\n", params.subscribers.size());
 
     // 4. Build HTTP request
     HttpRequest request;
@@ -209,8 +209,8 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
     request.headers = _headers;
     request.body = input.toJson().dump();
 
-    printf("[AGenUI][DEBUG] Sending request to %s\n", _baseUrl.c_str());
-    printf("[AGenUI][DEBUG] Request body size: %zu bytes\n", request.body.size());
+    printf("[AGUI-Log][DEBUG] Sending request to %s\n", _baseUrl.c_str());
+    printf("[AGUI-Log][DEBUG] Request body size: %zu bytes\n", request.body.size());
 
     // 5. Send request
     _httpService->sendSseRequest(
@@ -230,15 +230,15 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
                                 AgentErrorCallback onError) {
     // Check if HTTP request succeeded
     if (!response.isSuccess()) {
-        printf("[AGenUI][ERROR] HTTP request failed with status: %d\n", response.statusCode);
+        printf("[AGUI-Log][ERROR] HTTP request failed with status: %d\n", response.statusCode);
         if (onError) {
             onError("HTTP request failed with status: " + std::to_string(response.statusCode));
         }
         return;
     }
 
-    printf("[AGenUI][INFO] Received response (%d), parsing SSE events\n", response.statusCode);
-    printf("[AGenUI][DEBUG] Response size: %zu bytes\n", response.content.size());
+    printf("[AGUI-Log][INFO] Received response (%d), parsing SSE events\n", response.statusCode);
+    printf("[AGUI-Log][DEBUG] Response size: %zu bytes\n", response.content.size());
 
     // Clear parser state and feed data
     _sseParser->clear();
@@ -291,13 +291,13 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
                 }
             }
         } catch (const std::exception& e) {
-            printf("[AGenUI][ERROR] Error processing %s\n", e.what());
+            printf("[AGUI-Log][ERROR] Error processing %s\n", e.what());
         }
     }
 
     // Check for parsing errors
     if (!_sseParser->getLastError().empty()) {
-        printf("[AGenUI][WARN] SSE parser error: %s\n", _sseParser->getLastError().c_str());
+        printf("[AGUI-Log][WARN] SSE parser error: %s\n", _sseParser->getLastError().c_str());
     }
 
     // Collect results
@@ -315,7 +315,7 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
 
     // Process response through middleware
     if (_middlewareChain.size() > 0) {
-        printf("[AGenUI][INFO] Processing response through %zu middlewares\n", _middlewareChain.size());
+        printf("[AGUI-Log][INFO] Processing response through %zu middlewares\n", _middlewareChain.size());
         result = _middlewareChain.processResponse(result, middlewareContext);
     }
 
@@ -325,4 +325,4 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
     }
 }
 
-}  // namespace agenui
+}  // namespace agui

@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 
-#include "core/agenui_error.h"
+#include "core/error.h"
 
-namespace agenui {
+namespace agui {
 
 enum class PatchOperation { Add, Remove, Replace, Move, Copy, Test };
 
@@ -75,4 +75,4 @@ private:
     std::chrono::system_clock::time_point m_timestamp;
 };
 
-}  // namespace agenui
+}  // namespace agui

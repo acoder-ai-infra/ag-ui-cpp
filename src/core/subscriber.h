@@ -8,12 +8,12 @@
 #include <optional>
 #endif
 
-#include "core/agenui_error.h"
-#include "core/agenui_event.h"
-#include "core/agenui_session_types.h"
-#include "core/agenui_state.h"
+#include "core/error.h"
+#include "core/event.h"
+#include "core/session_types.h"
+#include "core/state.h"
 
-namespace agenui {
+namespace agui {
 
 class IAgentSubscriber;
 class EventHandler;
@@ -266,4 +266,4 @@ private:
     AgentSubscriberParams createParams() const;
 };
 
-}  // namespace agenui
+}  // namespace agui

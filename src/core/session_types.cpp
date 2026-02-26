@@ -1,8 +1,8 @@
-#include "agenui_session_types.h"
+#include "session_types.h"
 
-#include "agenui_uuid.h"
+#include "uuid.h"
 
-namespace agenui {
+namespace agui {
 
 // ToolCall implementation
 
@@ -295,4 +295,4 @@ RunAgentParams& RunAgentParams::addSubscriber(std::shared_ptr<IAgentSubscriber> 
     return *this;
 }
 
-}  // namespace agenui
+}  // namespace agui

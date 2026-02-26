@@ -244,9 +244,9 @@ Complete demonstration of all 23 event types.
 ### Basic Usage
 
 ```cpp
-#include "agent/agenui_http_agent.h"
+#include "agent/http_agent.h"
 
-using namespace agenui;
+using namespace agui;
 
 int main() {
     // Create Agent

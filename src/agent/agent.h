@@ -3,9 +3,9 @@
 #include <functional>
 #include <string>
 
-#include "core/agenui_session_types.h"
+#include "core/session_types.h"
 
-namespace agenui {
+namespace agui {
 
 // Forward declarations
 class AgentError;
@@ -49,4 +49,4 @@ public:
     virtual AgentId agentId() const = 0;
 };
 
-}  // namespace agenui
+}  // namespace agui

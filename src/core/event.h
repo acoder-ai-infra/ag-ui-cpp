@@ -5,10 +5,10 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-#include "core/agenui_error.h"
-#include "core/agenui_session_types.h"
+#include "core/error.h"
+#include "core/session_types.h"
 
-namespace agenui {
+namespace agui {
 
 /**
  * @brief Event type enumeration (23 event types in total)
@@ -397,4 +397,4 @@ public:
     static std::string eventTypeToString(EventType type);
 };
 
-}  // namespace agenui
+}  // namespace agui
