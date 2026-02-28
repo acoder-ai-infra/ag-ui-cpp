@@ -61,9 +61,9 @@ make -j4
 ### Basic Usage
 
 ```cpp
-#include "agent/agenui_http_agent.h"
+#include "agent/http_agent.h"
 
-using namespace agenui;
+using namespace agui;
 
 int main() {
     // Create an HTTP Agent
