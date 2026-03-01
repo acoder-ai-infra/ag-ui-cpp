@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -14,9 +15,6 @@
 #include "core/state.h"
 
 namespace agui {
-
-class IAgentSubscriber;
-class EventHandler;
 
 struct AgentStateMutation {
 #if __cplusplus >= 201703L
@@ -63,14 +61,13 @@ struct AgentStateMutation {
 };
 
 struct AgentSubscriberParams {
-    const std::vector<Message>* messages;
-    const std::string* state;
-    const RunAgentInput* input;
+    const std::vector<Message>* messages = nullptr;
+    const std::string* state = nullptr;
 
-    AgentSubscriberParams() : messages(nullptr), state(nullptr), input(nullptr) {}
+    AgentSubscriberParams() {}
 
-    AgentSubscriberParams(const std::vector<Message>* msgs, const std::string* st, const RunAgentInput* inp)
-        : messages(msgs), state(st), input(inp) {}
+    AgentSubscriberParams(const std::vector<Message>* msgs, const std::string* st)
+        : messages(msgs), state(st) {}
 };
 
 class IAgentSubscriber {
@@ -201,7 +198,7 @@ public:
 
 class EventHandler {
 public:
-    EventHandler(std::vector<Message> messages, const std::string &state, const RunAgentInput& input,
+    EventHandler(std::vector<Message> messages, const std::string &state,
                  std::vector<std::shared_ptr<IAgentSubscriber>> subscribers = {});
 
     AgentStateMutation handleEvent(std::unique_ptr<Event> event);
@@ -218,14 +215,12 @@ public:
     const std::vector<Message>& messages() const { return m_messages; }
     const std::string& state() const { return m_state; }
     const std::string& result() const { return m_result; }
-    const RunAgentInput& input() const { return m_input; }
 
     void setResult(const nlohmann::json& result) { m_result = result; }
 
 private:
     std::vector<Message> m_messages;
     std::string m_state;
-    const RunAgentInput& m_input;
     std::vector<std::shared_ptr<IAgentSubscriber>> m_subscribers;
     std::string m_result;
 

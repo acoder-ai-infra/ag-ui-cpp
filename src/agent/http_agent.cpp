@@ -75,8 +75,7 @@ HttpAgent::HttpAgent(const std::string& baseUrl, const std::map<std::string, std
     _sseParser = std::unique_ptr<SseParser>(new SseParser());
 
     // Create persistent EventHandler
-    RunAgentInput dummyInput;
-    _eventHandler = std::make_shared<EventHandler>(initialMessages, initialState, dummyInput,
+    _eventHandler = std::make_shared<EventHandler>(initialMessages, initialState,
                                                     std::vector<std::shared_ptr<IAgentSubscriber>>());
 
     printf("[AGUI-Log][INFO] HttpAgent created with %zu initial messages\n", initialMessages.size());

@@ -6,11 +6,10 @@ namespace agui {
 
 // EventHandler implementation
 
-EventHandler::EventHandler(std::vector<Message> messages, const std::string &state, const RunAgentInput& input,
+EventHandler::EventHandler(std::vector<Message> messages, const std::string &state,
                            std::vector<std::shared_ptr<IAgentSubscriber>> subscribers)
     : m_messages(std::move(messages)),
       m_state(state),
-      m_input(input),
       m_subscribers(std::move(subscribers)) {}
 
 AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
@@ -480,7 +479,7 @@ ToolCall* EventHandler::findToolCall(const MessageId& messageId, const ToolCallI
 }
 
 AgentSubscriberParams EventHandler::createParams() const {
-    return AgentSubscriberParams(&m_messages, &m_state, &m_input);
+    return AgentSubscriberParams(&m_messages, &m_state);
 }
 
 void EventHandler::processEventStream(std::vector<std::unique_ptr<Event>> events,
