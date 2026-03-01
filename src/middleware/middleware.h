@@ -190,26 +190,4 @@ public:
     std::unique_ptr<AgentError> onError(std::unique_ptr<AgentError> error, MiddlewareContext& context) override;
 };
 
-class RetryMiddleware : public IMiddleware {
-public:
-    explicit RetryMiddleware(int maxRetries = 3, int retryDelay = 1000);
-
-    std::unique_ptr<AgentError> onError(std::unique_ptr<AgentError> error, MiddlewareContext& context) override;
-
-private:
-    int m_maxRetries;
-    int m_retryDelay;
-    std::map<std::string, int> m_retryCount;
-};
-
-class TimeoutMiddleware : public IMiddleware {
-public:
-    explicit TimeoutMiddleware(int timeoutMs = 30000);
-
-    RunAgentInput onRequest(const RunAgentInput& input, MiddlewareContext& context) override;
-
-private:
-    int m_timeoutMs;
-};
-
 }  // namespace agui

@@ -146,44 +146,4 @@ std::unique_ptr<AgentError> LoggingMiddleware::onError(std::unique_ptr<AgentErro
     return error;
 }
 
-RetryMiddleware::RetryMiddleware(int maxRetries, int retryDelay) : m_maxRetries(maxRetries), m_retryDelay(retryDelay) {}
-
-std::unique_ptr<AgentError> RetryMiddleware::onError(std::unique_ptr<AgentError> error, MiddlewareContext& context) {
-    if (!error || !context.input) {
-        return error;
-    }
-
-    std::string requestId = context.input->runId;
-    int& retryCount = m_retryCount[requestId];
-
-    if (retryCount < m_maxRetries) {
-        retryCount++;
-
-        std::cout << "[RetryMiddleware] Retrying request (attempt " << retryCount << "/" << m_maxRetries << ")"
-                  << std::endl;
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(m_retryDelay));
-        return nullptr;
-    } else {
-        m_retryCount.erase(requestId);
-
-        std::cerr << "[RetryMiddleware] Max retries reached, giving up" << std::endl;
-
-        return error;
-    }
-}
-
-TimeoutMiddleware::TimeoutMiddleware(int timeoutMs) : m_timeoutMs(timeoutMs) {}
-
-RunAgentInput TimeoutMiddleware::onRequest(const RunAgentInput& input, MiddlewareContext& context) {
-    context.metadata["timeout_ms"] = std::to_string(m_timeoutMs);
-    context.metadata["start_time"] = std::to_string(
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-            .count());
-
-    std::cout << "[TimeoutMiddleware] Request timeout set to " << m_timeoutMs << "ms" << std::endl;
-
-    return input;
-}
-
 }  // namespace agui
