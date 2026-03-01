@@ -186,9 +186,19 @@ private:
               const std::vector<Message>& initialMessages, const std::string& initialState);
 
     /**
-     * @brief Handle HTTP response
+     * @brief Handle streaming data chunk (called for each SSE data chunk)
      */
-    void handleResponse(const HttpResponse& response, AgentSuccessCallback onSuccess, AgentErrorCallback onError);
+    void handleStreamData(const HttpResponse& response);
+
+    /**
+     * @brief Handle stream completion (called when SSE stream ends)
+     */
+    void handleStreamComplete(const HttpResponse& response, AgentSuccessCallback onSuccess, AgentErrorCallback onError);
+
+    /**
+     * @brief Process all available events from SSE parser
+     */
+    void processAvailableEvents();
 
     std::string _baseUrl;
     std::map<std::string, std::string> _headers;

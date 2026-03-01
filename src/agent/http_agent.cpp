@@ -162,6 +162,9 @@ MiddlewareChain& HttpAgent::middlewareChain() {
 void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSuccess, AgentErrorCallback onError) {
     printf("[AGUI-Log][INFO] Starting agent run\n");
 
+    // Clear SSE parser for new request
+    _sseParser->clear();
+
     // 1. Build RunAgentInput with current messages and state
     RunAgentInput input;
     input.threadId = params.threadId.empty() ? UuidGenerator::generate() : params.threadId;
@@ -211,50 +214,37 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
     printf("[AGUI-Log][DEBUG] Sending request to %s\n", _baseUrl.c_str());
     printf("[AGUI-Log][DEBUG] Request body size: %zu bytes\n", request.body.size());
 
-    // 5. Send request
+    // 5. Send request with separated onData and onComplete handlers
     _httpService->sendSseRequest(
         request,
-        [this, onSuccess, onError](const HttpResponse& response) {
-            this->handleResponse(response, onSuccess, onError);
+        // onData: Incremental processing of SSE chunks
+        [this](const HttpResponse& response) {
+            this->handleStreamData(response);
         },
+        // onComplete: Final processing when stream ends
         [this, onSuccess, onError](const HttpResponse& response) {
-             this->handleResponse(response, onSuccess, onError);
-         },
+            this->handleStreamComplete(response, onSuccess, onError);
+        },
         [onError](const AgentError& error) {
             onError("sse failed");
         });
 }
 
-void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallback onSuccess,
-                                AgentErrorCallback onError) {
-    // Check if HTTP request succeeded
-    if (!response.isSuccess()) {
-        printf("[AGUI-Log][ERROR] HTTP request failed with status: %d\n", response.statusCode);
-        if (onError) {
-            onError("HTTP request failed with status: " + std::to_string(response.statusCode));
-        }
-        return;
-    }
-
-    printf("[AGUI-Log][INFO] Received response (%d), parsing SSE events\n", response.statusCode);
-    printf("[AGUI-Log][DEBUG] Response size: %zu bytes\n", response.content.size());
-
-    // Clear parser state and feed data
-    _sseParser->clear();
+void HttpAgent::handleStreamData(const HttpResponse& response) {
+    // Feed data incrementally without clearing parser
     _sseParser->feed(response.content);
+    
+    // Process all complete events available
+    processAvailableEvents();
+}
 
-    // Record initial message IDs to identify new messages
-    std::set<MessageId> initialMessageIds;
-    for (const auto& msg : _eventHandler->messages()) {
-        initialMessageIds.insert(msg.id());
-    }
-
+void HttpAgent::processAvailableEvents() {
     // Prepare middleware context
     MiddlewareContext middlewareContext(nullptr, nullptr);
     middlewareContext.currentMessages = &_eventHandler->messages();
     middlewareContext.currentState = &_eventHandler->state();
 
-    // Process all SSE events
+    // Process all available SSE events
     while (_sseParser->hasEvent()) {
         try {
             const std::string &eventData = _sseParser->nextEvent();
@@ -290,7 +280,7 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
                 }
             }
         } catch (const std::exception& e) {
-            printf("[AGUI-Log][ERROR] Error processing %s\n", e.what());
+            printf("[AGUI-Log][ERROR] Error processing event: %s\n", e.what());
         }
     }
 
@@ -298,6 +288,26 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
     if (!_sseParser->getLastError().empty()) {
         printf("[AGUI-Log][WARN] SSE parser error: %s\n", _sseParser->getLastError().c_str());
     }
+}
+
+void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessCallback onSuccess,
+                                     AgentErrorCallback onError) {
+    // Check if HTTP request succeeded
+    if (!response.isSuccess()) {
+        printf("[AGUI-Log][ERROR] HTTP request failed with status: %d\n", response.statusCode);
+        if (onError) {
+            onError("HTTP request failed with status: " + std::to_string(response.statusCode));
+        }
+        return;
+    }
+
+    printf("[AGUI-Log][INFO] Stream complete, flushing remaining data\n");
+
+    // Flush any remaining data in parser buffer
+    _sseParser->flush();
+    
+    // Process any remaining events
+    processAvailableEvents();
 
     // Collect results
     RunAgentResult result;
@@ -305,16 +315,15 @@ void HttpAgent::handleResponse(const HttpResponse& response, AgentSuccessCallbac
     result.result = _eventHandler->result();
     result.threadId = "";
 
-    // Identify new messages
-    for (const auto& msg : _eventHandler->messages()) {
-        if (initialMessageIds.find(msg.id()) == initialMessageIds.end()) {
-            result.newMessages.push_back(msg);
-        }
-    }
+    // All messages are new messages (no need to track initial IDs in streaming mode)
+    result.newMessages = _eventHandler->messages();
 
     // Process response through middleware
     if (_middlewareChain.size() > 0) {
         printf("[AGUI-Log][INFO] Processing response through %zu middlewares\n", _middlewareChain.size());
+        MiddlewareContext middlewareContext(nullptr, nullptr);
+        middlewareContext.currentMessages = &_eventHandler->messages();
+        middlewareContext.currentState = &_eventHandler->state();
         result = _middlewareChain.processResponse(result, middlewareContext);
     }
 
