@@ -106,6 +106,21 @@ public:
     virtual ~HttpAgent();
 
     // IAgent interface implementation
+    
+    /**
+     * @brief Run the agent with the given parameters
+     * 
+     * @warning BLOCKING CALL - This method blocks the calling thread until completion
+     * 
+     * This is a synchronous blocking call using libcurl. The blocking behavior is intentional
+     * to provide maximum flexibility for different threading models (worker threads, thread pools,
+     * async frameworks like Boost.Asio/Qt/libuv, etc.). See README.md "Architecture & Design Decisions"
+     * section for detailed rationale and usage patterns.
+     * 
+     * @param params Run parameters including input messages and state
+     * @param onSuccess Callback invoked when agent completes successfully
+     * @param onError Callback invoked when an error occurs
+     */
     void runAgent(const RunAgentParams& params, AgentSuccessCallback onSuccess, AgentErrorCallback onError) override;
 
     AgentId agentId() const override;

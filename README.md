@@ -6,16 +6,59 @@
 
 A production-ready C++ implementation of the [AG-UI Protocol](https://github.com/ag-ui/protocol), providing a complete SDK for AI Agent interaction with applications. This SDK implements all features, protocols, and specifications defined in the AG-UI protocol.
 
-## ✨ Features
+## Features
 
-- **🚀 C++ Implementation** - Cross-platform support with high performance
-- **🌐 HTTP Connectivity** - Built on libcurl for both standard and streaming HTTP requests
-- **📡 Stream Processing** - SSE (Server-Sent Events) parser for real-time data streaming
-- **🎯 Event & State Management** - Complete implementation of all 23 AG-UI event types with state management
-- **🔌 Middleware Support** - Flexible request/response pipeline with middleware architecture
-- **📢 Subscriber Pattern** - External subscriber support for event handling and processing
+- **C++ Implementation** - Cross-platform support with high performance
+- **HTTP Connectivity** - Built on libcurl for both standard and streaming HTTP requests
+- **Stream Processing** - SSE (Server-Sent Events) parser for real-time data streaming
+- **Event & State Management** - Complete implementation of all 23 AG-UI event types with state management
+- **Middleware Support** - Flexible request/response pipeline with middleware architecture
+- **Subscriber Pattern** - External subscriber support for event handling and processing
+- **Synchronous API Design** - Intentionally synchronous for maximum threading model flexibility
 
-## 📋 Requirements
+## Architecture & Design Decisions
+
+### Synchronous API Design
+
+The `runAgent()` method uses a **synchronous blocking API**. This is an intentional design decision that provides maximum flexibility for different application architectures.
+
+#### Rationale
+
+1. **Threading Model Flexibility**: Different applications have different threading requirements (Qt event loops, game engine schedulers, server thread pools, embedded systems, etc.). A synchronous API allows each application to choose the threading model that best fits its architecture.
+
+2. **Simplicity**: Synchronous code is easier to understand, debug, and maintain. It avoids the complexity of callback chains, promise management, or coroutine state machines.
+
+3. **Integration Freedom**: You can easily wrap the synchronous API with any async pattern your application uses (`std::async`, thread pools, Boost.Asio, libuv, Qt, etc.).
+
+#### Usage Patterns
+
+```cpp
+// Pattern 1: Dedicated worker thread
+std::thread([&agent, params]() {
+    agent->runAgent(params, onSuccess, onError);
+}).detach();
+
+// Pattern 2: Thread pool
+threadPool.enqueue([&agent, params]() {
+    agent->runAgent(params, onSuccess, onError);
+});
+
+// Pattern 3: std::async
+auto future = std::async(std::launch::async, [&agent, params]() {
+    agent->runAgent(params, onSuccess, onError);
+});
+
+// Pattern 4: Async framework integration (Boost.Asio, Qt, libuv, etc.)
+boost::asio::post(ioContext, [&agent, params]() {
+    agent->runAgent(params, onSuccess, onError);
+});
+```
+
+#### Implementation
+
+The synchronous behavior is implemented using libcurl's blocking I/O. Events are processed as they arrive in the SSE stream, and callbacks are invoked synchronously during stream processing. This design gives you complete control over threading without imposing hidden thread creation or event loop requirements.
+
+## Requirements
 
 ### Build Dependencies
 
@@ -39,7 +82,7 @@ sudo apt-get install cmake g++ pkg-config
 sudo apt-get install nlohmann-json3-dev libcurl4-openssl-dev
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Building the SDK
 
@@ -102,7 +145,7 @@ int main() {
 }
 ```
 
-## 🧪 Testing
+## Testing
 
 The SDK includes comprehensive test suites to verify functionality and demonstrate usage patterns.
 
@@ -181,10 +224,10 @@ cd build
 ctest -V
 ```
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
-ag-ui-cpp/
+c++/
 ├── src/
 │   ├── agent/          # Agent implementations
 │   ├── core/           # Core types and utilities
@@ -200,7 +243,7 @@ ag-ui-cpp/
 └── README.md           # This file
 ```
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions to the AG-UI C++ SDK! Here's how you can help:
 
@@ -212,16 +255,16 @@ We welcome contributions to the AG-UI C++ SDK! Here's how you can help:
 6. **Push to the branch** (`git push origin feature/amazing-feature`)
 7. **Open a Pull Request**
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Based on the [AG-UI Protocol](https://github.com/ag-ui/protocol) specification
 - Inspired by the TypeScript reference implementation
 
-## 📧 Contact
+## Contact
 
 - **Issues**: [GitHub Issues](https://github.com/your-org/ag-ui-cpp/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/ag-ui-cpp/discussions)
