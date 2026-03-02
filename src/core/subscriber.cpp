@@ -288,7 +288,9 @@ void EventHandler::clearSubscribers() {
 }
 
 void EventHandler::handleTextMessageStart(const TextMessageStartEvent& event) {
-    Message message = Message::createAssistant("", event.messageId);
+    // Use createAssistantWithId to ensure the message uses the ID from the event
+    // This is critical for TEXT_MESSAGE_START/CONTENT/END event correlation
+    Message message = Message::createAssistantWithId(event.messageId, "");
     m_messages.push_back(message);
     m_textBuffers[event.messageId] = "";
     notifyNewMessage(message);
@@ -308,32 +310,22 @@ void EventHandler::handleTextMessageEnd(const TextMessageEndEvent& event) {
 }
 
 void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event) {
-    MessageId tempId = "thinking_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-    Message message = Message::createAssistant("", tempId);
-    m_messages.push_back(message);
-    m_textBuffers[tempId] = "";
-    notifyNewMessage(message);
+    // Thinking messages are not persisted to message history
+    // They represent the AI's internal reasoning process and are only for real-time display
 }
 
 void EventHandler::handleThinkingTextMessageContent(const ThinkingTextMessageContentEvent& event) {
-    if (!m_messages.empty()) {
-        Message* msg = &m_messages.back();
-        msg->appendContent(event.delta);
-        m_textBuffers[msg->id()] += event.delta;
-    }
 }
 
 void EventHandler::handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent& event) {
-    if (!m_messages.empty()) {
-        m_textBuffers.erase(m_messages.back().id());
-    }
-    notifyMessagesChanged();
 }
 
 void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
     Message* msg = findMessage(event.parentMessageId);
     if (!msg) {
-        Message message = Message::createAssistant("", event.parentMessageId);
+        // Use createAssistantWithId to ensure the message uses the ID from the event
+        // This is critical for TOOL_CALL_START/ARGS/END event correlation
+        Message message = Message::createAssistantWithId(event.parentMessageId, "");
         m_messages.push_back(message);
         msg = &m_messages.back();
     }

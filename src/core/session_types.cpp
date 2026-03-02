@@ -74,6 +74,42 @@ Message Message::createTool(const std::string& toolCallId, const std::string& co
     return msg;
 }
 
+// Overloaded versions with custom ID
+Message Message::createUserWithId(const MessageId& id, const std::string& content, const std::string& name) {
+    Message msg;
+    msg._id = id;  // Use provided ID instead of generating
+    msg._role = MessageRole::User;
+    msg._content = content;
+    msg._name = name;
+    return msg;
+}
+
+Message Message::createAssistantWithId(const MessageId& id, const std::string& content, const std::string& name) {
+    Message msg;
+    msg._id = id;  // Use provided ID instead of generating
+    msg._role = MessageRole::Assistant;
+    msg._content = content;
+    msg._name = name;
+    return msg;
+}
+
+Message Message::createSystemWithId(const MessageId& id, const std::string& content) {
+    Message msg;
+    msg._id = id;  // Use provided ID instead of generating
+    msg._role = MessageRole::System;
+    msg._content = content;
+    return msg;
+}
+
+Message Message::createToolWithId(const MessageId& id, const std::string& toolCallId, const std::string& content) {
+    Message msg;
+    msg._id = id;  // Use provided ID instead of generating
+    msg._role = MessageRole::Tool;
+    msg._content = content;
+    msg._toolCallId = toolCallId;
+    return msg;
+}
+
 nlohmann::json Message::toJson() const {
     nlohmann::json j;
     j["id"] = _id;

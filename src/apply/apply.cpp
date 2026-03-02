@@ -66,10 +66,9 @@ bool ApplyModule::validateState(const nlohmann::json& stateObj) {
 }
 
 Message ApplyModule::createAssistantMessage(const MessageId& id) {
-    Message msg = Message::createAssistant("");
-    // Note: Message class generates its own ID, we may need to modify Message class
-    // to support setting custom ID
-    return msg;
+    // Use the provided ID instead of generating a new one
+    // This ensures TEXT_MESSAGE_START/CONTENT/END events share the same message ID
+    return Message::createAssistantWithId(id, "");
 }
 
 Message ApplyModule::createToolMessage(const ToolCallId& toolCallId, const std::string& content) {

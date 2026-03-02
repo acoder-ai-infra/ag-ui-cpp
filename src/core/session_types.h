@@ -65,6 +65,12 @@ public:
     static Message createSystem(const std::string& content);
     static Message createTool(const std::string& toolCallId, const std::string& content);
 
+    // Overloaded versions that accept custom message ID
+    static Message createUserWithId(const MessageId& id, const std::string& content, const std::string& name = "");
+    static Message createAssistantWithId(const MessageId& id, const std::string& content, const std::string& name = "");
+    static Message createSystemWithId(const MessageId& id, const std::string& content);
+    static Message createToolWithId(const MessageId& id, const std::string& toolCallId, const std::string& content);
+
     const MessageId& id() const { return _id; }
     MessageRole role() const { return _role; }
     const std::string& content() const { return _content; }
