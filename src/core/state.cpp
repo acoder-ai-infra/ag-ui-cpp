@@ -2,8 +2,29 @@
 
 #include <algorithm>
 #include <sstream>
+#include "core/logger.h"
 
 namespace agui {
+
+namespace {
+
+size_t parseArrayIndex(const std::string& segment, const std::string& path, bool allowAppendToken = false) {
+    if (allowAppendToken && segment == "-") {
+        return static_cast<size_t>(-1);
+    }
+
+    try {
+        return std::stoul(segment);
+    } catch (const std::invalid_argument&) {
+        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
+                         "Invalid array index '" + segment + "' in path: " + path);
+    } catch (const std::out_of_range&) {
+        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
+                         "Array index out of range '" + segment + "' in path: " + path);
+    }
+}
+
+}  // namespace
 
 nlohmann::json JsonPatchOp::toJson() const {
     nlohmann::json j;
@@ -31,7 +52,7 @@ nlohmann::json JsonPatchOp::toJson() const {
 
     j["path"] = path;
 
-    if (op != PatchOperation::Remove && op != PatchOperation::Move) {
+    if (op != PatchOperation::Remove && op != PatchOperation::Move && op != PatchOperation::Copy) {
         j["value"] = value;
     }
 
@@ -67,6 +88,7 @@ JsonPatchOp JsonPatchOp::fromJson(const nlohmann::json& j) {
 
     if (j.contains("value")) {
         patchOp.value = j["value"];
+        patchOp.hasValue = true;
     }
 
     if (j.contains("from")) {
@@ -74,6 +96,46 @@ JsonPatchOp JsonPatchOp::fromJson(const nlohmann::json& j) {
     }
 
     return patchOp;
+}
+
+void JsonPatchOp::validate() const {
+    // Validate path format (must start with /)
+    if (path.empty() || path[0] != '/') {
+        throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                         "Invalid JSON Pointer path: " + path);
+    }
+
+    // move and copy operations require from field
+    if (op == PatchOperation::Move || op == PatchOperation::Copy) {
+        const std::string opStr = (op == PatchOperation::Move) ? "move" : "copy";
+        if (from.empty()) {
+            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                             "Operation '" + opStr + "' requires 'from' field");
+        }
+        if (from[0] != '/') {
+            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                             "Invalid JSON Pointer 'from' path: " + from);
+        }
+    }
+
+    // add, replace, test operations require the "value" field to be present.
+    // Two ways a value can be considered "provided":
+    //   1. hasValue=true  — field was explicitly present in JSON (null is valid per RFC 6902)
+    //   2. !value.is_null() — field was set directly on the struct without going through fromJson()
+    // Only reject when both conditions indicate absence: hasValue=false AND value is null.
+    if (op == PatchOperation::Add || op == PatchOperation::Replace || op == PatchOperation::Test) {
+        if (!hasValue && value.is_null()) {
+            std::string opStr;
+            switch (op) {
+                case PatchOperation::Add:     opStr = "add";     break;
+                case PatchOperation::Replace: opStr = "replace"; break;
+                case PatchOperation::Test:    opStr = "test";    break;
+                default:                                         break;
+            }
+            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                             "Operation '" + opStr + "' requires 'value' field");
+        }
+    }
 }
 
 StateManager::StateManager()
@@ -91,14 +153,31 @@ void StateManager::setState(const nlohmann::json& state) {
 
 void StateManager::applyPatch(const nlohmann::json& patch) {
     if (!patch.is_array()) {
-        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument, "Patch must be an array");
+        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument, 
+                         "Patch must be an array");
     }
 
     nlohmann::json backup = m_currentState;
 
-    for (const auto& opJson : patch) {
-        JsonPatchOp op = JsonPatchOp::fromJson(opJson);
-        applyPatchOp(op);
+    try {
+        for (const auto& opJson : patch) {
+            JsonPatchOp op = JsonPatchOp::fromJson(opJson);
+            applyPatchOp(op);
+        }
+    } catch (const AgentError& e) {
+        Logger::errorf("StateManager::applyPatch failed: ", e.what());
+        m_currentState = backup;
+        throw;
+    } catch (const nlohmann::json::exception& e) {
+        Logger::errorf("StateManager::applyPatch JSON error: ", e.what());
+        m_currentState = backup;
+        throw AgentError(ErrorType::State, ErrorCode::StatePatchFailed, 
+                         "JSON patch failed: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        Logger::errorf("StateManager::applyPatch error: ", e.what());
+        m_currentState = backup;
+        throw AgentError(ErrorType::State, ErrorCode::StatePatchFailed, 
+                         "Patch operation failed: " + std::string(e.what()));
     }
 
     if (m_historyEnabled) {
@@ -107,36 +186,37 @@ void StateManager::applyPatch(const nlohmann::json& patch) {
 }
 
 void StateManager::applyPatchOp(const JsonPatchOp& op) {
-    switch (op.op) {
-        case PatchOperation::Add:
-            applyAdd(op.path, op.value);
-            break;
-        case PatchOperation::Remove:
-            applyRemove(op.path);
-            break;
-        case PatchOperation::Replace:
-            applyReplace(op.path, op.value);
-            break;
-        case PatchOperation::Move:
-            applyMove(op.from, op.path);
-            break;
-        case PatchOperation::Copy:
-            applyCopy(op.from, op.path);
-            break;
-        case PatchOperation::Test:
-            applyTest(op.path, op.value);
-            break;
+    try {
+        switch (op.op) {
+            case PatchOperation::Add:
+                applyAdd(op.path, op.value);
+                break;
+            case PatchOperation::Remove:
+                applyRemove(op.path);
+                break;
+            case PatchOperation::Replace:
+                applyReplace(op.path, op.value);
+                break;
+            case PatchOperation::Move:
+                applyMove(op.from, op.path);
+                break;
+            case PatchOperation::Copy:
+                applyCopy(op.from, op.path);
+                break;
+            case PatchOperation::Test:
+                applyTest(op.path, op.value);
+                break;
+        }
+    } catch (const AgentError&) {
+        throw;
+    } catch (const std::exception& e) {
+        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
+                         "Patch operation failed: " + std::string(e.what()));
     }
 }
 
-bool StateManager::validateState(const nlohmann::json* schema) const {
-    if (m_currentState.is_null()) {
-        return false;
-    }
-
-    (void)schema;
-
-    return true;
+bool StateManager::validateState() const {
+    return !m_currentState.is_null();
 }
 
 nlohmann::json StateManager::createSnapshot() const {
@@ -188,7 +268,7 @@ void StateManager::addToHistory(const nlohmann::json& state) {
     m_history.push_back(state);
 
     if (m_maxHistorySize > 0 && m_history.size() > m_maxHistorySize) {
-        m_history.erase(m_history.begin());
+        m_history.pop_front();
     }
 }
 
@@ -213,8 +293,8 @@ void StateManager::applyAdd(const std::string& path, const nlohmann::json& value
             }
             current = &(*current)[segment];
         } else if (current->is_array()) {
-            size_t index = std::stoul(segment);
-            if (index > current->size()) {
+            size_t index = parseArrayIndex(segment, path);
+            if (index >= current->size()) {
                 throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
                                  "Array index out of bounds: " + segment);
             }
@@ -232,7 +312,7 @@ void StateManager::applyAdd(const std::string& path, const nlohmann::json& value
         if (lastSegment == "-") {
             current->push_back(value);
         } else {
-            size_t index = std::stoul(lastSegment);
+            size_t index = parseArrayIndex(lastSegment, path);
             if (index > current->size()) {
                 throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
                                  "Array index out of bounds: " + lastSegment);
@@ -265,7 +345,7 @@ void StateManager::applyRemove(const std::string& path) {
             }
             current = &(*current)[segment];
         } else if (current->is_array()) {
-            size_t index = std::stoul(segment);
+            size_t index = parseArrayIndex(segment, path);
             if (index >= current->size()) {
                 throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
                                  "Array index out of bounds: " + segment);
@@ -285,7 +365,7 @@ void StateManager::applyRemove(const std::string& path) {
         }
         current->erase(lastSegment);
     } else if (current->is_array()) {
-        size_t index = std::stoul(lastSegment);
+        size_t index = parseArrayIndex(lastSegment, path);
         if (index >= current->size()) {
             throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
                              "Array index out of bounds: " + lastSegment);
@@ -357,10 +437,8 @@ std::vector<std::string> StateManager::parsePath(const std::string& path) {
     std::string current;
     for (size_t i = 1; i < path.length(); ++i) {
         if (path[i] == '/') {
-            if (!current.empty()) {
-                segments.push_back(current);
-                current.clear();
-            }
+            segments.push_back(current);  // RFC 6901: always push token, even empty string
+            current.clear();
         } else if (path[i] == '~') {
             if (i + 1 < path.length()) {
                 if (path[i + 1] == '0') {
@@ -380,9 +458,7 @@ std::vector<std::string> StateManager::parsePath(const std::string& path) {
         }
     }
 
-    if (!current.empty()) {
-        segments.push_back(current);
-    }
+    segments.push_back(current);  // RFC 6901: always push final token, even empty string
 
     return segments;
 }
@@ -405,7 +481,9 @@ nlohmann::json* StateManager::getValueAtPath(const std::string& path) {
             }
             current = &(*current)[segment];
         } else if (current->is_array()) {
-            size_t index = std::stoul(segment);
+            // Let AgentError from parseArrayIndex propagate: callers must distinguish
+            // "path not found" (nullptr) from "malformed path" (AgentError).
+            size_t index = parseArrayIndex(segment, path);
             if (index >= current->size()) {
                 return nullptr;
             }
@@ -416,64 +494,6 @@ nlohmann::json* StateManager::getValueAtPath(const std::string& path) {
     }
 
     return current;
-}
-
-const nlohmann::json* StateManager::getValueAtPath(const std::string& path) const {
-    return const_cast<StateManager*>(this)->getValueAtPath(path);
-}
-
-void StateManager::setValueAtPath(const std::string& path, const nlohmann::json& value, bool createPath) {
-    if (path.empty() || path == "/") {
-        m_currentState = value;
-        return;
-    }
-
-    std::vector<std::string> segments = parsePath(path);
-    if (segments.empty()) {
-        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument, "Invalid path: " + path);
-    }
-
-    nlohmann::json* current = &m_currentState;
-    for (size_t i = 0; i < segments.size() - 1; ++i) {
-        const std::string& segment = segments[i];
-
-        if (current->is_object()) {
-            if (!current->contains(segment)) {
-                if (createPath) {
-                    (*current)[segment] = nlohmann::json::object();
-                } else {
-                    throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
-                                     "Path not found: " + path);
-                }
-            }
-            current = &(*current)[segment];
-        } else if (current->is_array()) {
-            size_t index = std::stoul(segment);
-            if (index >= current->size()) {
-                throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
-                                 "Array index out of bounds: " + segment);
-            }
-            current = &(*current)[index];
-        } else {
-            throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
-                             "Cannot navigate through non-object/array: " + path);
-        }
-    }
-
-    const std::string& lastSegment = segments.back();
-    if (current->is_object()) {
-        (*current)[lastSegment] = value;
-    } else if (current->is_array()) {
-        size_t index = std::stoul(lastSegment);
-        if (index >= current->size()) {
-            throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
-                             "Array index out of bounds: " + lastSegment);
-        }
-        (*current)[index] = value;
-    } else {
-        throw AgentError(ErrorType::Validation, ErrorCode::ValidationInvalidArgument,
-                         "Cannot set value on non-object/array");
-    }
 }
 
 void StateManager::removeValueAtPath(const std::string& path) {
@@ -501,6 +521,11 @@ StateSnapshot StateSnapshot::fromJson(const nlohmann::json& j) {
     }
 
     if (j.contains("timestamp")) {
+        if (!j["timestamp"].is_number()) {
+            throw AGUI_ERROR(parse, ErrorCode::ParseJsonError,
+                             "StateSnapshot 'timestamp' field must be a number (ms since epoch), got: " +
+                             j["timestamp"].dump());
+        }
         int64_t ms = j["timestamp"].get<int64_t>();
         snapshot.m_timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ms));
     }

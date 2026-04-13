@@ -1,5 +1,7 @@
 #include "apply.h"
 
+#include "core/logger.h"
+
 namespace agui {
 
 Message* ApplyModule::findMessageById(std::vector<Message>& messages, const MessageId& id) {
@@ -29,16 +31,6 @@ Message* ApplyModule::findLastAssistantMessage(std::vector<Message>& messages) {
     return nullptr;
 }
 
-ToolCall* ApplyModule::findToolCallById(Message& message, const ToolCallId& id) {
-    auto& toolCalls = const_cast<std::vector<ToolCall>&>(message.toolCalls());
-    for (auto& tc : toolCalls) {
-        if (tc.id == id) {
-            return &tc;
-        }
-    }
-    return nullptr;
-}
-
 const ToolCall* ApplyModule::findToolCallById(const Message& message, const ToolCallId& id) {
     const auto& toolCalls = message.toolCalls();
     for (const auto& tc : toolCalls) {
@@ -54,25 +46,25 @@ void ApplyModule::applyJsonPatch(nlohmann::json& state, const nlohmann::json& pa
         // Apply JSON Patch (RFC 6902)
         state = state.patch(patch);
     } catch (const std::exception& e) {
-        std::cerr << "Failed to apply JSON patch: " << e.what() << std::endl;
-        throw AgentError(ErrorType::State, ErrorCode::StatePatchFailed, 
+        Logger::errorf("Failed to apply JSON patch: ", e.what());
+        throw AgentError(ErrorType::State, ErrorCode::StatePatchFailed,
                         "Failed to apply JSON patch: " + std::string(e.what()));
     }
 }
 
 bool ApplyModule::validateState(const nlohmann::json& stateObj) {
-    // State must be a JSON object or null
-    return stateObj.is_object() || stateObj.is_null();
+    // State must be a JSON object, null is not allowed
+    return stateObj.is_object();
 }
 
 Message ApplyModule::createAssistantMessage(const MessageId& id) {
     // Use the provided ID instead of generating a new one
     // This ensures TEXT_MESSAGE_START/CONTENT/END events share the same message ID
-    return Message::createAssistantWithId(id, "");
+    return Message::createWithId(id, MessageRole::Assistant, "");
 }
 
 Message ApplyModule::createToolMessage(const ToolCallId& toolCallId, const std::string& content) {
-    return Message::createTool(toolCallId, content);
+    return Message::create(MessageRole::Tool, content, "", toolCallId);
 }
 
 }  // namespace agui

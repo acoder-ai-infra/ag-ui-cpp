@@ -1,16 +1,56 @@
 #include "core/subscriber.h"
-
+#include "logger.h"
 #include <algorithm>
 
 namespace agui {
 
-// EventHandler implementation
+namespace {
 
-EventHandler::EventHandler(std::vector<Message> messages, const std::string &state,
+[[noreturn]] void throwSubscriberFailure(const char* stage, const std::exception& e) {
+    throw AGUI_ERROR(execution, ErrorCode::ExecutionAgentFailed,
+                     std::string("Subscriber callback failed during ") + stage + ": " + e.what());
+}
+
+[[noreturn]] void throwUnknownSubscriberFailure(const char* stage) {
+    throw AGUI_ERROR(execution, ErrorCode::ExecutionAgentFailed,
+                     std::string("Subscriber callback failed during ") + stage + ": unknown exception");
+}
+
+[[noreturn]] void throwInvalidChunkEvent(const char* eventType, const std::string& reason) {
+    throw AGUI_ERROR(validation, ErrorCode::ValidationInvalidEvent,
+                     std::string(eventType) + " is missing required context: " + reason);
+}
+
+AgentStateMutation mergeMutations(const AgentStateMutation& first, const AgentStateMutation& second) {
+    AgentStateMutation merged;
+    if (first.messages.has_value()) {
+        merged.messages = first.messages;
+    }
+    if (first.state.has_value()) {
+        merged.state = first.state;
+    }
+
+    if (second.messages.has_value()) {
+        merged.messages = second.messages;
+    }
+    if (second.state.has_value()) {
+        merged.state = second.state;
+    }
+
+    merged.stopPropagation = first.stopPropagation || second.stopPropagation;
+    return merged;
+}
+
+}  // namespace
+
+// EventHandler implementation
+EventHandler::EventHandler(std::vector<Message> messages, const nlohmann::json &state,
                            std::vector<std::shared_ptr<IAgentSubscriber>> subscribers)
     : m_messages(std::move(messages)),
-      m_state(state),
-      m_subscribers(std::move(subscribers)) {}
+      m_subscribers(std::move(subscribers)),
+      m_state(state.is_null() ? nlohmann::json::object() : state) {
+    rebuildMessageIndex();
+}
 
 AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
     if (!event) {
@@ -29,230 +69,240 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
     }
 
     // Step 3: Execute default event handling
+    // Use dynamic_cast to safely downcast; a null result means the concrete type
+    // does not match the enum (e.g. a middleware returned a mismatched event object),
+    // in which case we skip the handler rather than invoking undefined behaviour.
+#define AGUI_HANDLE_EVENT(EventClass, handler) \
+    { auto* e = dynamic_cast<EventClass*>(event.get()); \
+      if (e) { handler(*e); } \
+      else { Logger::warningf("handleEvent: dynamic_cast to " #EventClass " failed, skipping handler"); } }
+
     switch (type) {
         case EventType::TextMessageStart:
-            handleTextMessageStart(*static_cast<TextMessageStartEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(TextMessageStartEvent, handleTextMessageStart)
             break;
         case EventType::TextMessageContent:
-            handleTextMessageContent(*static_cast<TextMessageContentEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(TextMessageContentEvent, handleTextMessageContent)
             break;
         case EventType::TextMessageEnd:
-            handleTextMessageEnd(*static_cast<TextMessageEndEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(TextMessageEndEvent, handleTextMessageEnd)
+            break;
+        case EventType::TextMessageChunk:
+            AGUI_HANDLE_EVENT(TextMessageChunkEvent, handleTextMessageChunk)
             break;
         case EventType::ThinkingTextMessageStart:
-            handleThinkingTextMessageStart(*static_cast<ThinkingTextMessageStartEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ThinkingTextMessageStartEvent, handleThinkingTextMessageStart)
             break;
         case EventType::ThinkingTextMessageContent:
-            handleThinkingTextMessageContent(*static_cast<ThinkingTextMessageContentEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ThinkingTextMessageContentEvent, handleThinkingTextMessageContent)
             break;
         case EventType::ThinkingTextMessageEnd:
-            handleThinkingTextMessageEnd(*static_cast<ThinkingTextMessageEndEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ThinkingTextMessageEndEvent, handleThinkingTextMessageEnd)
             break;
         case EventType::ToolCallStart:
-            handleToolCallStart(*static_cast<ToolCallStartEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ToolCallStartEvent, handleToolCallStart)
             break;
         case EventType::ToolCallArgs:
-            handleToolCallArgs(*static_cast<ToolCallArgsEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ToolCallArgsEvent, handleToolCallArgs)
             break;
         case EventType::ToolCallEnd:
-            handleToolCallEnd(*static_cast<ToolCallEndEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ToolCallEndEvent, handleToolCallEnd)
+            break;
+        case EventType::ToolCallChunk:
+            AGUI_HANDLE_EVENT(ToolCallChunkEvent, handleToolCallChunk)
             break;
         case EventType::ToolCallResult:
-            handleToolCallResult(*static_cast<ToolCallResultEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(ToolCallResultEvent, handleToolCallResult)
             break;
         case EventType::StateSnapshot:
-            handleStateSnapshot(*static_cast<StateSnapshotEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(StateSnapshotEvent, handleStateSnapshot)
             break;
         case EventType::StateDelta:
-            handleStateDelta(*static_cast<StateDeltaEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(StateDeltaEvent, handleStateDelta)
             break;
         case EventType::MessagesSnapshot:
-            handleMessagesSnapshot(*static_cast<MessagesSnapshotEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(MessagesSnapshotEvent, handleMessagesSnapshot)
             break;
         case EventType::RunStarted:
-            handleRunStarted(*static_cast<RunStartedEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(RunStartedEvent, handleRunStarted)
             break;
         case EventType::RunFinished:
-            handleRunFinished(*static_cast<RunFinishedEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(RunFinishedEvent, handleRunFinished)
             break;
         case EventType::RunError:
-            handleRunError(*static_cast<RunErrorEvent*>(event.get()));
+            AGUI_HANDLE_EVENT(RunErrorEvent, handleRunError)
+            break;
+        case EventType::ActivitySnapshot:
+            AGUI_HANDLE_EVENT(ActivitySnapshotEvent, handleActivitySnapshot)
+            break;
+        case EventType::ActivityDelta:
+            AGUI_HANDLE_EVENT(ActivityDeltaEvent, handleActivityDelta)
             break;
 
         default:
             break;
     }
+#undef AGUI_HANDLE_EVENT
 
     // Step 4: Invoke type-specific subscriber callbacks
     AgentStateMutation specificMutation;
 
+#define AGUI_NOTIFY_EVENT(EventClass, callback) \
+    { auto* e = dynamic_cast<EventClass*>(event.get()); \
+      if (e) { \
+          specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) { \
+              return sub->callback(*e, params); \
+          }); \
+      } else { \
+          Logger::warningf("handleEvent: dynamic_cast to " #EventClass " failed in Step 4, skipping subscribers"); \
+      } }
+
     switch (type) {
         case EventType::TextMessageStart:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onTextMessageStart(*static_cast<TextMessageStartEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(TextMessageStartEvent, onTextMessageStart)
             break;
 
         case EventType::TextMessageContent: {
-            auto* e = static_cast<TextMessageContentEvent*>(event.get());
-            const std::string& buffer = m_textBuffers[e->messageId];
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onTextMessageContent(*e, buffer, params);
-            });
+            auto* e = dynamic_cast<TextMessageContentEvent*>(event.get());
+            if (e) {
+                const std::string& buffer = m_textBuffers[e->messageId];
+                specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
+                    return sub->onTextMessageContent(*e, buffer, params);
+                });
+            } else {
+                Logger::warningf("handleEvent: dynamic_cast to TextMessageContentEvent failed in Step 4, skipping subscribers");
+            }
             break;
         }
 
         case EventType::TextMessageEnd:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onTextMessageEnd(*static_cast<TextMessageEndEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(TextMessageEndEvent, onTextMessageEnd)
             break;
 
         case EventType::TextMessageChunk:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onTextMessageChunk(*static_cast<TextMessageChunkEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(TextMessageChunkEvent, onTextMessageChunk)
             break;
 
         case EventType::ThinkingTextMessageStart:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onThinkingTextMessageStart(*static_cast<ThinkingTextMessageStartEvent*>(event.get()),
-                                                       params);
-            });
+            AGUI_NOTIFY_EVENT(ThinkingTextMessageStartEvent, onThinkingTextMessageStart)
             break;
 
         case EventType::ThinkingTextMessageContent: {
-            auto* e = static_cast<ThinkingTextMessageContentEvent*>(event.get());
-            // Use buffer from the last message (thinking messages don't have messageId)
-            std::string buffer;
-            if (!m_messages.empty()) {
-                buffer = m_textBuffers[m_messages.back().id()];
+            auto* e = dynamic_cast<ThinkingTextMessageContentEvent*>(event.get());
+            if (e) {
+                specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
+                    return sub->onThinkingTextMessageContent(*e, m_thinkingBuffer, params);
+                });
+            } else {
+                Logger::warningf("handleEvent: dynamic_cast to ThinkingTextMessageContentEvent failed in Step 4, skipping subscribers");
             }
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onThinkingTextMessageContent(*e, buffer, params);
-            });
             break;
         }
 
         case EventType::ThinkingTextMessageEnd:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onThinkingTextMessageEnd(*static_cast<ThinkingTextMessageEndEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ThinkingTextMessageEndEvent, onThinkingTextMessageEnd)
             break;
 
         case EventType::ToolCallStart:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onToolCallStart(*static_cast<ToolCallStartEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ToolCallStartEvent, onToolCallStart)
             break;
 
         case EventType::ToolCallArgs: {
-            auto* e = static_cast<ToolCallArgsEvent*>(event.get());
-            const std::string& buffer = m_toolCallArgsBuffers[e->toolCallId];
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onToolCallArgs(*e, buffer, params);
-            });
+            auto* e = dynamic_cast<ToolCallArgsEvent*>(event.get());
+            if (e) {
+                const std::string& buffer = m_toolCallArgsBuffers[e->toolCallId];
+                specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
+                    return sub->onToolCallArgs(*e, buffer, params);
+                });
+            } else {
+                Logger::warningf("handleEvent: dynamic_cast to ToolCallArgsEvent failed in Step 4, skipping subscribers");
+            }
             break;
         }
 
         case EventType::ToolCallEnd:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onToolCallEnd(*static_cast<ToolCallEndEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ToolCallEndEvent, onToolCallEnd)
             break;
 
         case EventType::ToolCallChunk:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onToolCallChunk(*static_cast<ToolCallChunkEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ToolCallChunkEvent, onToolCallChunk)
             break;
 
         case EventType::ToolCallResult:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onToolCallResult(*static_cast<ToolCallResultEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ToolCallResultEvent, onToolCallResult)
             break;
 
         case EventType::ThinkingStart:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onThinkingStart(*static_cast<ThinkingStartEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ThinkingStartEvent, onThinkingStart)
             break;
 
         case EventType::ThinkingEnd:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onThinkingEnd(*static_cast<ThinkingEndEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(ThinkingEndEvent, onThinkingEnd)
             break;
 
         case EventType::StateSnapshot:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onStateSnapshot(*static_cast<StateSnapshotEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(StateSnapshotEvent, onStateSnapshot)
             break;
 
         case EventType::StateDelta:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onStateDelta(*static_cast<StateDeltaEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(StateDeltaEvent, onStateDelta)
             break;
 
         case EventType::MessagesSnapshot:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onMessagesSnapshot(*static_cast<MessagesSnapshotEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(MessagesSnapshotEvent, onMessagesSnapshot)
             break;
 
         case EventType::RunStarted:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onRunStarted(*static_cast<RunStartedEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(RunStartedEvent, onRunStarted)
             break;
 
         case EventType::RunFinished:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onRunFinished(*static_cast<RunFinishedEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(RunFinishedEvent, onRunFinished)
             break;
 
         case EventType::RunError:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onRunError(*static_cast<RunErrorEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(RunErrorEvent, onRunError)
+            break;
+
+        case EventType::ActivitySnapshot:
+            AGUI_NOTIFY_EVENT(ActivitySnapshotEvent, onActivitySnapshot)
+            break;
+
+        case EventType::ActivityDelta:
+            AGUI_NOTIFY_EVENT(ActivityDeltaEvent, onActivityDelta)
             break;
 
         case EventType::StepStarted:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onStepStarted(*static_cast<StepStartedEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(StepStartedEvent, onStepStarted)
             break;
 
         case EventType::StepFinished:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onStepFinished(*static_cast<StepFinishedEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(StepFinishedEvent, onStepFinished)
             break;
 
         case EventType::Raw:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onRawEvent(*static_cast<RawEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(RawEvent, onRawEvent)
             break;
 
         case EventType::Custom:
-            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onCustomEvent(*static_cast<CustomEvent*>(event.get()), params);
-            });
+            AGUI_NOTIFY_EVENT(CustomEvent, onCustomEvent)
+            break;
+
+        default:
             break;
     }
+#undef AGUI_NOTIFY_EVENT
 
-    return specificMutation;
+    // Generic onEvent() and type-specific callbacks are both allowed to
+    // request state/message overrides. Specific callbacks run later and take
+    // precedence on conflicting fields.
+    return mergeMutations(genericMutation, specificMutation);
 }
 
 void EventHandler::applyMutation(const AgentStateMutation& mutation) {
-#if __cplusplus >= 201703L
     if (mutation.messages.has_value()) {
         m_messages = mutation.messages.value();
+        rebuildMessageIndex();
         notifyMessagesChanged();
     }
 
@@ -260,17 +310,6 @@ void EventHandler::applyMutation(const AgentStateMutation& mutation) {
         m_state = mutation.state.value();
         notifyStateChanged();
     }
-#else
-    if (mutation.messages) {
-        m_messages = *mutation.messages;
-        notifyMessagesChanged();
-    }
-
-    if (mutation.state) {
-        m_state = *mutation.state;
-        notifyStateChanged();
-    }
-#endif
 }
 
 void EventHandler::addSubscriber(std::shared_ptr<IAgentSubscriber> subscriber) {
@@ -287,13 +326,27 @@ void EventHandler::clearSubscribers() {
     m_subscribers.clear();
 }
 
+void EventHandler::clearBuffers() {
+    m_textBuffers.clear();
+    m_toolCallArgsBuffers.clear();
+    m_thinkingBuffer.clear();
+    m_lastTextChunkMessageId.clear();
+    m_lastToolCallChunkId.clear();
+}
+
 void EventHandler::handleTextMessageStart(const TextMessageStartEvent& event) {
-    // Use createAssistantWithId to ensure the message uses the ID from the event
-    // This is critical for TEXT_MESSAGE_START/CONTENT/END event correlation
-    Message message = Message::createAssistantWithId(event.messageId, "");
-    m_messages.push_back(message);
+    Message* existingMessage = findMessage(event.messageId);
+    if (!existingMessage) {
+        Message message = Message::createWithId(
+            event.messageId, event.role.value_or(MessageRole::Assistant), "");
+        m_messages.push_back(message);
+        m_messageIndex[event.messageId] = m_messages.size() - 1;
+        notifyNewMessage(m_messages.back());
+        notifyMessagesChanged();
+    } else {
+        existingMessage->setRole(event.role.value_or(MessageRole::Assistant));
+    }
     m_textBuffers[event.messageId] = "";
-    notifyNewMessage(message);
 }
 
 void EventHandler::handleTextMessageContent(const TextMessageContentEvent& event) {
@@ -301,6 +354,9 @@ void EventHandler::handleTextMessageContent(const TextMessageContentEvent& event
     Message* msg = findMessage(event.messageId);
     if (msg) {
         msg->appendContent(event.delta);
+    } else {
+        Logger::warningf("handleTextMessageContent: message '", event.messageId,
+                         "' not found; delta discarded (TEXT_MESSAGE_CONTENT before TEXT_MESSAGE_START?)");
     }
 }
 
@@ -309,25 +365,68 @@ void EventHandler::handleTextMessageEnd(const TextMessageEndEvent& event) {
     notifyMessagesChanged();
 }
 
-void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event) {
-    // Thinking messages are not persisted to message history
-    // They represent the AI's internal reasoning process and are only for real-time display
+void EventHandler::handleTextMessageChunk(const TextMessageChunkEvent& event) {
+    const MessageId targetMessageId = event.messageId.empty() ? m_lastTextChunkMessageId : event.messageId;
+    if (targetMessageId.empty()) {
+        throwInvalidChunkEvent("TEXT_MESSAGE_CHUNK", "messageId was omitted before any text chunk established context");
+    }
+
+    m_lastTextChunkMessageId = targetMessageId;
+
+    Message* message = findMessage(targetMessageId);
+    if (!message) {
+        Message newMessage = Message::createWithId(
+            targetMessageId,
+            event.role.value_or(MessageRole::Assistant),
+            "");
+        if (event.name.has_value()) {
+            newMessage.setName(event.name.value());
+        }
+        m_messages.push_back(newMessage);
+        m_messageIndex[targetMessageId] = m_messages.size() - 1;
+        notifyNewMessage(m_messages.back());
+        message = &m_messages.back();
+    } else if (event.role.has_value()) {
+        message->setRole(event.role.value());
+    }
+
+    if (event.name.has_value()) {
+        message->setName(event.name.value());
+    }
+
+    m_textBuffers[targetMessageId] += event.delta;
+    message->appendContent(event.delta);
+}
+
+void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent&) {
+    // Thinking messages are not persisted to message history; clear the dedicated buffer
+    m_thinkingBuffer.clear();
 }
 
 void EventHandler::handleThinkingTextMessageContent(const ThinkingTextMessageContentEvent& event) {
+    m_thinkingBuffer += event.delta;
 }
 
-void EventHandler::handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent& event) {
+void EventHandler::handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent&) {
+    m_thinkingBuffer.clear();
 }
 
 void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
-    Message* msg = findMessage(event.parentMessageId);
+    Message* msg = nullptr;
+
+    // Full scan: parentMessageId may refer to any message in history, not just the last one.
+    if (event.parentMessageId.has_value()) {
+        msg = findMessage(event.parentMessageId.value());
+    }
+
     if (!msg) {
-        // Use createAssistantWithId to ensure the message uses the ID from the event
-        // This is critical for TOOL_CALL_START/ARGS/END event correlation
-        Message message = Message::createAssistantWithId(event.parentMessageId, "");
+        const MessageId targetMessageId =
+            event.parentMessageId.has_value() ? event.parentMessageId.value() : event.toolCallId;
+        Message message = Message::createWithId(targetMessageId, MessageRole::Assistant, "");
         m_messages.push_back(message);
+        m_messageIndex[targetMessageId] = m_messages.size() - 1;
         msg = &m_messages.back();
+        notifyNewMessage(*msg);
     }
 
     ToolCall toolCall;
@@ -336,21 +435,61 @@ void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
     toolCall.function.arguments = "";
 
     msg->addToolCall(toolCall);
+    m_toolCallToMessageIndex[event.toolCallId] = m_messageIndex.at(msg->id());
     m_toolCallArgsBuffers[event.toolCallId] = "";
     notifyNewToolCall(toolCall);
 }
 
 void EventHandler::handleToolCallArgs(const ToolCallArgsEvent& event) {
     m_toolCallArgsBuffers[event.toolCallId] += event.delta;
-    ToolCall* toolCall = findToolCall(event.messageId, event.toolCallId);
-    if (toolCall) {
-        toolCall->function.arguments += event.delta;
-    }
+    appendEventDelta(event.toolCallId, event.delta);
 }
 
 void EventHandler::handleToolCallEnd(const ToolCallEndEvent& event) {
     m_toolCallArgsBuffers.erase(event.toolCallId);
     notifyMessagesChanged();
+}
+
+void EventHandler::handleToolCallChunk(const ToolCallChunkEvent& event) {
+    const ToolCallId targetToolCallId = event.toolCallId.empty() ? m_lastToolCallChunkId : event.toolCallId;
+    if (targetToolCallId.empty()) {
+        throwInvalidChunkEvent("TOOL_CALL_CHUNK", "toolCallId was omitted before any tool call chunk established context");
+    }
+
+    m_lastToolCallChunkId = targetToolCallId;
+
+    Message* targetMessage = findMessageContainingToolCall(targetToolCallId);
+    if (!targetMessage) {
+        if (!event.toolCallName.has_value()) {
+            throwInvalidChunkEvent("TOOL_CALL_CHUNK",
+                                   "toolCallName is required when the target tool call does not already exist");
+        }
+
+        if (event.parentMessageId.has_value()) {
+            targetMessage = findMessage(event.parentMessageId.value());
+        }
+
+        if (!targetMessage) {
+            const MessageId targetMessageId =
+                event.parentMessageId.has_value() ? event.parentMessageId.value() : targetToolCallId;
+            Message message = Message::createWithId(targetMessageId, MessageRole::Assistant, "");
+            m_messages.push_back(message);
+            m_messageIndex[targetMessageId] = m_messages.size() - 1;
+            targetMessage = &m_messages.back();
+            notifyNewMessage(*targetMessage);
+        }
+
+        ToolCall toolCall;
+        toolCall.id = targetToolCallId;
+        toolCall.function.name = event.toolCallName.value();
+        toolCall.function.arguments = "";
+        targetMessage->addToolCall(toolCall);
+        m_toolCallToMessageIndex[targetToolCallId] = m_messageIndex.at(targetMessage->id());
+        notifyNewToolCall(toolCall);
+    }
+
+    m_toolCallArgsBuffers[targetToolCallId] += event.delta;
+    appendEventDelta(targetToolCallId, event.delta);
 }
 
 void EventHandler::handleStateSnapshot(const StateSnapshotEvent& event) {
@@ -359,6 +498,8 @@ void EventHandler::handleStateSnapshot(const StateSnapshotEvent& event) {
 }
 
 void EventHandler::handleStateDelta(const StateDeltaEvent& event) {
+    // Re-throw on failure: a state divergence is a fatal condition. The caller
+    // (processAvailableEvents) will catch it and terminate the run with an error.
     StateManager stateManager(m_state);
     stateManager.applyPatch(event.delta);
     m_state = stateManager.currentState();
@@ -367,21 +508,26 @@ void EventHandler::handleStateDelta(const StateDeltaEvent& event) {
 
 void EventHandler::handleMessagesSnapshot(const MessagesSnapshotEvent& event) {
     m_messages = event.messages;
+    rebuildMessageIndex();
     notifyMessagesChanged();
 }
 
-void EventHandler::handleRunStarted(const RunStartedEvent& event) {
-    (void)event;
+void EventHandler::handleRunStarted(const RunStartedEvent&) {
 }
 
 void EventHandler::handleRunFinished(const RunFinishedEvent& event) {
     if (!event.result.is_null()) {
-        m_result = event.result;
+        m_result = event.result.dump();
     }
 }
 
 void EventHandler::handleRunError(const RunErrorEvent& event) {
-    (void)event;
+    // Log the structured error so it appears in diagnostics even if no subscriber
+    // overrides onRunError().  The caller (HttpAgent) also sets m_runErrorOccurred
+    // to redirect the terminal notification through notifyRunFailed() rather than
+    // notifyRunFinalized(), ensuring onRunFailed() fires instead of onRunFinalized().
+    Logger::errorf("Run error received: ", event.message,
+                   event.code.has_value() ? " (code: " + *event.code + ")" : "");
 }
 
 AgentStateMutation EventHandler::notifySubscribers(
@@ -390,27 +536,26 @@ AgentStateMutation EventHandler::notifySubscribers(
     AgentSubscriberParams params = createParams();
 
     for (auto& subscriber : m_subscribers) {
-        AgentStateMutation mutation = notifyFunc(subscriber.get(), params);
-
-#if __cplusplus >= 201703L
-        if (mutation.messages.has_value()) {
-            finalMutation.messages = mutation.messages;
-        }
-        if (mutation.state.has_value()) {
-            finalMutation.state = mutation.state;
-        }
-#else
-        if (mutation.messages) {
-            finalMutation.messages.reset(new std::vector<Message>(*mutation.messages));
-        }
-        if (mutation.state) {
-            finalMutation.state.reset(new nlohmann::json(*mutation.state));
-        }
-#endif
-
-        if (mutation.stopPropagation) {
-            finalMutation.stopPropagation = true;
-            break;
+        try {
+            AgentStateMutation mutation = notifyFunc(subscriber.get(), params);
+            
+            if (mutation.messages.has_value()) {
+                finalMutation.messages = mutation.messages;
+            }
+            if (mutation.state.has_value()) {
+                finalMutation.state = mutation.state;
+            }
+            
+            if (mutation.stopPropagation) {
+                finalMutation.stopPropagation = true;
+                break;
+            }
+        } catch (const std::exception& e) {
+            Logger::errorf("notifySubscribers: subscriber error: ", e.what());
+            throwSubscriberFailure("event notification", e);
+        } catch (...) {
+            Logger::errorf("notifySubscribers: subscriber threw unknown exception");
+            throwUnknownSubscriberFailure("event notification");
         }
     }
 
@@ -420,88 +565,204 @@ AgentStateMutation EventHandler::notifySubscribers(
 void EventHandler::notifyNewMessage(const Message& message) {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onNewMessage(message, params);
+        try {
+            subscriber->onNewMessage(message, params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyNewMessage: subscriber error: ", e.what());
+            throwSubscriberFailure("onNewMessage", e);
+        } catch (...) {
+            Logger::errorf("notifyNewMessage: subscriber threw unknown exception");
+            throwUnknownSubscriberFailure("onNewMessage");
+        }
     }
 }
 
 void EventHandler::notifyNewToolCall(const ToolCall& toolCall) {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onNewToolCall(toolCall, params);
+        try {
+            subscriber->onNewToolCall(toolCall, params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyNewToolCall: subscriber error: ", e.what());
+            throwSubscriberFailure("onNewToolCall", e);
+        } catch (...) {
+            Logger::errorf("notifyNewToolCall: subscriber threw unknown exception");
+            throwUnknownSubscriberFailure("onNewToolCall");
+        }
     }
 }
 
 void EventHandler::notifyMessagesChanged() {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onMessagesChanged(params);
+        try {
+            subscriber->onMessagesChanged(params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyMessagesChanged: subscriber error: ", e.what());
+            throwSubscriberFailure("onMessagesChanged", e);
+        } catch (...) {
+            Logger::errorf("notifyMessagesChanged: subscriber threw unknown exception");
+            throwUnknownSubscriberFailure("onMessagesChanged");
+        }
     }
 }
 
 void EventHandler::notifyStateChanged() {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onStateChanged(params);
+        try {
+            subscriber->onStateChanged(params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyStateChanged: subscriber error: ", e.what());
+            throwSubscriberFailure("onStateChanged", e);
+        } catch (...) {
+            Logger::errorf("notifyStateChanged: subscriber threw unknown exception");
+            throwUnknownSubscriberFailure("onStateChanged");
+        }
+    }
+}
+
+void EventHandler::notifyRunFailed(const AgentError& error) {
+    // Best-effort notification: unlike notifySubscribers/notifyNewMessage (which rethrow
+    // on the first subscriber failure), these terminal callbacks intentionally continue
+    // notifying all remaining subscribers even when one throws.  Rethrowing here would
+    // cut off downstream subscribers from receiving the failure signal, leaving them in
+    // an inconsistent state — the opposite of what cleanup callbacks are supposed to do.
+    // Exceptions are logged but NOT re-raised; the original AgentError is already
+    // propagating up the call stack and must not be masked by a subscriber exception.
+    AgentSubscriberParams params = createParams();
+    for (auto& subscriber : m_subscribers) {
+        try {
+            subscriber->onRunFailed(error, params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyRunFailed: subscriber threw — continuing to notify remaining subscribers: ",
+                           e.what());
+        } catch (...) {
+            Logger::errorf("notifyRunFailed: subscriber threw unknown exception — continuing to notify remaining subscribers");
+        }
+    }
+}
+
+void EventHandler::notifyRunFinalized() {
+    // Same best-effort policy as notifyRunFailed: all subscribers are notified
+    // regardless of individual failures.  See comment above for rationale.
+    AgentSubscriberParams params = createParams();
+    for (auto& subscriber : m_subscribers) {
+        try {
+            subscriber->onRunFinalized(params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyRunFinalized: subscriber threw — continuing to notify remaining subscribers: ",
+                           e.what());
+        } catch (...) {
+            Logger::errorf("notifyRunFinalized: subscriber threw unknown exception — continuing to notify remaining subscribers");
+        }
     }
 }
 
 Message* EventHandler::findMessage(const MessageId& id) {
-    for (auto& msg : m_messages) {
-        if (msg.id() == id) {
-            return &msg;
-        }
-    }
-    return nullptr;
-}
-
-ToolCall* EventHandler::findToolCall(const MessageId& messageId, const ToolCallId& toolCallId) {
-    Message* msg = findMessage(messageId);
-    if (!msg) {
+    auto it = m_messageIndex.find(id);
+    if (it == m_messageIndex.end() || it->second >= m_messages.size()) {
         return nullptr;
     }
+    return &m_messages[it->second];
+}
 
-    auto& toolCalls = const_cast<std::vector<ToolCall>&>(msg->toolCalls());
-    for (size_t i = 0; i < toolCalls.size(); ++i) {
-        if (toolCalls[i].id == toolCallId) {
-            return &toolCalls[i];
+Message* EventHandler::findMessageContainingToolCall(const ToolCallId& toolCallId) {
+    auto it = m_toolCallToMessageIndex.find(toolCallId);
+    if (it == m_toolCallToMessageIndex.end() || it->second >= m_messages.size()) {
+        return nullptr;
+    }
+    return &m_messages[it->second];
+}
+
+void EventHandler::rebuildMessageIndex() {
+    m_messageIndex.clear();
+    m_toolCallToMessageIndex.clear();
+    for (size_t i = 0; i < m_messages.size(); ++i) {
+        m_messageIndex[m_messages[i].id()] = i;
+        for (const auto& toolCall : m_messages[i].toolCalls()) {
+            m_toolCallToMessageIndex[toolCall.id] = i;
         }
     }
+}
 
-    return nullptr;
+void EventHandler::appendEventDelta(const ToolCallId& toolCallId, const std::string &delta) {
+    Message* msg = findMessageContainingToolCall(toolCallId);
+    if (!msg) {
+        Logger::warningf("appendEventDelta: no message found for toolCallId=", toolCallId);
+        return;
+    }
+    msg->appendEventDelta(toolCallId, delta);
 }
 
 AgentSubscriberParams EventHandler::createParams() const {
     return AgentSubscriberParams(&m_messages, &m_state);
 }
 
-void EventHandler::processEventStream(std::vector<std::unique_ptr<Event>> events,
-                                      std::function<void(const AgentStateMutation&)> onMutation,
-                                      std::function<void()> onComplete,
-                                      std::function<void(const AgentError&)> onError) {
-    try {
-        for (auto& event : events) {
-            AgentStateMutation mutation = handleEvent(std::move(event));
-            applyMutation(mutation);
-
-            if (mutation.hasChanges()) {
-                onMutation(mutation);
-            }
-        }
-
-        onComplete();
-
-    } catch (const AgentError& e) {
-        onError(e);
-    } catch (const std::exception& e) {
-        AgentError error;
-        // TODO: process error
-    }
+void EventHandler::handleToolCallResult(const ToolCallResultEvent& event) {
+    Message toolMessage = event.messageId.empty()
+        ? Message::create(MessageRole::Tool, event.content, "", event.toolCallId)
+        : Message::createWithId(event.messageId, MessageRole::Tool, event.content, "", event.toolCallId);
+    m_messages.push_back(toolMessage);
+    m_messageIndex[toolMessage.id()] = m_messages.size() - 1;
+    notifyNewMessage(toolMessage);
+    notifyMessagesChanged();
 }
 
-void EventHandler::handleToolCallResult(const ToolCallResultEvent& event) {
-    Message toolMessage = Message::createTool(event.toolCallId, event.result);
-    m_messages.push_back(toolMessage);
-    notifyNewMessage(toolMessage);
+void EventHandler::handleActivitySnapshot(const ActivitySnapshotEvent& event) {
+    Message* existing = findMessage(event.messageId);
+
+    if (!existing) {
+        Message activityMsg = Message::createWithId(event.messageId, MessageRole::Activity,
+                                                    event.content.dump());
+        activityMsg.setActivityType(event.activityType);
+        m_messages.push_back(activityMsg);
+        m_messageIndex[event.messageId] = m_messages.size() - 1;
+        notifyNewMessage(m_messages.back());
+    } else if (event.replace) {
+        existing->setContent(event.content.dump());
+        existing->setActivityType(event.activityType);
+    }
+
+    notifyMessagesChanged();
+}
+
+void EventHandler::handleActivityDelta(const ActivityDeltaEvent& event) {
+    Message* existing = findMessage(event.messageId);
+    if (!existing) {
+        throw AGUI_ERROR(state, ErrorCode::StatePatchFailed,
+                         "ActivityDeltaEvent: unknown activity messageId '" + event.messageId + "'");
+    }
+
+    if (existing->role() != MessageRole::Activity) {
+        throw AGUI_ERROR(state, ErrorCode::StatePatchFailed,
+                         "ActivityDeltaEvent: message '" + event.messageId + "' is not an activity message");
+    }
+
+    try {
+        // Default to empty object if content is absent, consistent with TypeScript (content ?? {})
+        nlohmann::json currentContent = existing->content().empty()
+            ? nlohmann::json::object()
+            : nlohmann::json::parse(existing->content());
+
+        nlohmann::json patchJson = nlohmann::json::array();
+        for (const auto& op : event.patch) {
+            patchJson.push_back(op.toJson());
+        }
+
+        StateManager stateManager(currentContent);
+        stateManager.applyPatch(patchJson);
+        existing->setContent(stateManager.currentState().dump());
+        existing->setActivityType(event.activityType);  // sync activityType from delta event
+    } catch (const AgentError& e) {
+        throw AGUI_ERROR(state, ErrorCode::StatePatchFailed,
+                         "ActivityDeltaEvent: failed to update message '" + event.messageId + "': " + e.what());
+    } catch (const std::exception& e) {
+        Logger::errorf("handleActivityDelta: failed to apply patch for '", event.messageId, "': ", e.what());
+        throw AGUI_ERROR(state, ErrorCode::StatePatchFailed,
+                         "ActivityDeltaEvent: failed to update message '" + event.messageId + "': " + e.what());
+    }
+
     notifyMessagesChanged();
 }
 

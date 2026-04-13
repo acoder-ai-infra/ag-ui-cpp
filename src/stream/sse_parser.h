@@ -4,85 +4,54 @@
 #include <string>
 #include <queue>
 
+#include "core/error.h"
+
 namespace agui {
+
+class SseBufferExceededError : public AgentError {
+public:
+    explicit SseBufferExceededError(const std::string& msg)
+        : AgentError(ErrorType::Parse, ErrorCode::ParseSseError, msg) {}
+};
 
 /**
  * @brief AG-UI SSE parser
- * 
- * Specialized parser for AG-UI protocol SSE streams
- * Features:
- * - Extracts only data: fields
- * - Automatically parses JSON
- * - Returns JSON objects directly
- * - Ignores event: and id: fields
- * 
+ *
+ * Splits an SSE byte stream into individual event payloads.
+ * Extracts only data: fields and returns them as raw strings;
+ * JSON parsing is left to the caller.
+ * Ignores event: and id: fields.
+ *
  * SSE format:
  * data: {"type": "TEXT_MESSAGE_START", "messageId": "1"}
- * 
+ *
  * (blank line indicates event end)
  */
 class SseParser {
 public:
-    SseParser();
-    ~SseParser();
+    /// Maximum buffer size (10 MB) to prevent memory exhaustion attacks
+    static constexpr size_t kMaxBufferSize = 10 * 1024 * 1024;
 
-    /**
-     * @brief Feed data chunk to parser
-     * @param chunk Data chunk
-     */
+    SseParser() = default;
+    ~SseParser() = default;
+
     void feed(const std::string& chunk);
-
-    /**
-     * @brief Check if there are pending events
-     * @return true if events are available
-     */
     bool hasEvent() const;
-
-    /**
-     * @brief Get next event (JSON object)
-     * @return JSON object
-     * @note Should check hasEvent() before calling
-     */
+    // Check hasEvent() before calling.
     std::string nextEvent();
-
-    /**
-     * @brief Clear all buffers
-     */
     void clear();
-
-    /**
-     * @brief Flush buffer and process remaining data
-     * @note Call when stream ends
-     */
+    // Call when the stream ends to flush any trailing partial event.
     void flush();
 
-    /**
-     * @brief Get last error message
-     * @return Error message, or empty string if no error
-     */
-    std::string getLastError() const;
-
 private:
-    /**
-     * @brief Process data in buffer
-     */
     void processBuffer();
-
-    /**
-     * @brief Parse a line of data
-     * @param line Data line
-     */
     void parseLine(const std::string& line);
-
-    /**
-     * @brief Finish building current event
-     */
     void finishEvent();
 
-    std::string _buffer;
-    std::queue<std::string> _eventStrings;
-    std::string _lastError;
-    std::string _currentData;
+    std::string m_buffer;
+    std::queue<std::string> m_eventStrings;
+    std::string m_currentData;
+    size_t m_processed_pos = 0;
 };
 
 }  // namespace agui

@@ -1,6 +1,8 @@
 #include "session_types.h"
 
+#include "error.h"
 #include "uuid.h"
+#include "logger.h"
 
 namespace agui {
 
@@ -29,129 +31,92 @@ ToolCall ToolCall::fromJson(const nlohmann::json& j) {
 }
 
 // Message implementation
-
-Message::Message() : _id(UuidGenerator::generate()), _role(MessageRole::User) {}
-
 Message::Message(const MessageId &mid, const MessageRole &role, const std::string &content) :
-    _id(mid),
-    _role(role),
-    _content(content) {}
+    m_id(mid),
+    m_role(role),
+    m_content(content) {}
 
-Message::~Message() {}
+std::string Message::roleToString(MessageRole role) {
+    switch (role) {
+        case MessageRole::User:      return "user";
+        case MessageRole::Assistant: return "assistant";
+        case MessageRole::System:    return "system";
+        case MessageRole::Tool:      return "tool";
+        case MessageRole::Developer: return "developer";
+        case MessageRole::Activity:  return "activity";
+        case MessageRole::Reasoning: return "reasoning";
+    }
+    // A new MessageRole was added without a case here — throw rather than silently
+    // returning "user" which would corrupt message history sent to the server.
+    throw AGUI_ERROR(validation, ErrorCode::ValidationInvalidArgument,
+                     "roleToString: unhandled MessageRole enumerator — update this switch");
+}
 
-Message Message::createUser(const std::string& content, const std::string& name) {
+MessageRole Message::roleFromString(const std::string& roleStr) {
+    if (roleStr == "user")      return MessageRole::User;
+    if (roleStr == "assistant") return MessageRole::Assistant;
+    if (roleStr == "system")    return MessageRole::System;
+    if (roleStr == "tool")      return MessageRole::Tool;
+    if (roleStr == "developer") return MessageRole::Developer;
+    if (roleStr == "activity")  return MessageRole::Activity;
+    if (roleStr == "reasoning") return MessageRole::Reasoning;
+    // Throw rather than defaulting to User — an unknown role would corrupt message
+    // history sent back to the server on the next run.
+    throw AGUI_ERROR(parse, ErrorCode::ParseEventError,
+                     "Unknown message role: '" + roleStr + "'");
+}
+
+Message Message::create(MessageRole role, const std::string& content,
+                         const std::string& name, const std::string& toolCallId) {
     Message msg;
-    msg._id = UuidGenerator::generate();
-    msg._role = MessageRole::User;
-    msg._content = content;
-    msg._name = name;
+    msg.m_id = UuidGenerator::generate();
+    msg.m_role = role;
+    msg.m_content = content;
+    msg.m_name = name;
+    msg.m_toolCallId = toolCallId;
     return msg;
 }
 
-Message Message::createAssistant(const std::string& content, const std::string& name) {
+Message Message::createWithId(const MessageId& id, MessageRole role,
+                               const std::string& content, const std::string& name,
+                               const std::string& toolCallId) {
     Message msg;
-    msg._id = UuidGenerator::generate();
-    msg._role = MessageRole::Assistant;
-    msg._content = content;
-    msg._name = name;
-    return msg;
-}
-
-Message Message::createSystem(const std::string& content) {
-    Message msg;
-    msg._id = UuidGenerator::generate();
-    msg._role = MessageRole::System;
-    msg._content = content;
-    return msg;
-}
-
-Message Message::createTool(const std::string& toolCallId, const std::string& content) {
-    Message msg;
-    msg._id = UuidGenerator::generate();
-    msg._role = MessageRole::Tool;
-    msg._content = content;
-    msg._toolCallId = toolCallId;
-    return msg;
-}
-
-// Overloaded versions with custom ID
-Message Message::createUserWithId(const MessageId& id, const std::string& content, const std::string& name) {
-    Message msg;
-    msg._id = id;  // Use provided ID instead of generating
-    msg._role = MessageRole::User;
-    msg._content = content;
-    msg._name = name;
-    return msg;
-}
-
-Message Message::createAssistantWithId(const MessageId& id, const std::string& content, const std::string& name) {
-    Message msg;
-    msg._id = id;  // Use provided ID instead of generating
-    msg._role = MessageRole::Assistant;
-    msg._content = content;
-    msg._name = name;
-    return msg;
-}
-
-Message Message::createSystemWithId(const MessageId& id, const std::string& content) {
-    Message msg;
-    msg._id = id;  // Use provided ID instead of generating
-    msg._role = MessageRole::System;
-    msg._content = content;
-    return msg;
-}
-
-Message Message::createToolWithId(const MessageId& id, const std::string& toolCallId, const std::string& content) {
-    Message msg;
-    msg._id = id;  // Use provided ID instead of generating
-    msg._role = MessageRole::Tool;
-    msg._content = content;
-    msg._toolCallId = toolCallId;
+    msg.m_id = id;
+    msg.m_role = role;
+    msg.m_content = content;
+    msg.m_name = name;
+    msg.m_toolCallId = toolCallId;
     return msg;
 }
 
 nlohmann::json Message::toJson() const {
     nlohmann::json j;
-    j["id"] = _id;
+    j["id"] = m_id;
 
-    // Role
-    switch (_role) {
-        case MessageRole::User:
-            j["role"] = "user";
-            break;
-        case MessageRole::Assistant:
-            j["role"] = "assistant";
-            break;
-        case MessageRole::System:
-            j["role"] = "system";
-            break;
-        case MessageRole::Tool:
-            j["role"] = "tool";
-            break;
+    j["role"] = roleToString(m_role);
+
+    if (!m_content.empty()) {
+        j["content"] = m_content;
     }
 
-    // Content
-    if (!_content.empty()) {
-        j["content"] = _content;
+    if (!m_name.empty()) {
+        j["name"] = m_name;
     }
 
-    // Name
-    if (!_name.empty()) {
-        j["name"] = _name;
-    }
-
-    // Tool calls
-    if (!_toolCalls.empty()) {
+    if (!m_toolCalls.empty()) {
         nlohmann::json toolCallsJson = nlohmann::json::array();
-        for (const auto& tc : _toolCalls) {
+        for (const auto& tc : m_toolCalls) {
             toolCallsJson.push_back(tc.toJson());
         }
-        j["tool_calls"] = toolCallsJson;
+        j["toolCalls"] = toolCallsJson;
     }
 
-    // tool_call_id for Tool role
-    if (_role == MessageRole::Tool && !_toolCallId.empty()) {
-        j["tool_call_id"] = _toolCallId;
+    if (m_role == MessageRole::Tool && !m_toolCallId.empty()) {
+        j["toolCallId"] = m_toolCallId;
+    }
+
+    if (m_role == MessageRole::Activity && !m_activityType.empty()) {
+        j["activityType"] = m_activityType;
     }
 
     return j;
@@ -160,32 +125,66 @@ nlohmann::json Message::toJson() const {
 Message Message::fromJson(const nlohmann::json& j) {
     Message msg;
 
-    msg._id = j.value("id", UuidGenerator::generate());
-
-    // Parse role
-    std::string roleStr = j.value("role", "user");
-    if (roleStr == "user") {
-        msg._role = MessageRole::User;
-    } else if (roleStr == "assistant") {
-        msg._role = MessageRole::Assistant;
-    } else if (roleStr == "system") {
-        msg._role = MessageRole::System;
-    } else if (roleStr == "tool") {
-        msg._role = MessageRole::Tool;
+    // If present, id must be a non-empty string; absent id gets a fresh UUID.
+    if (j.contains("id")) {
+        if (!j["id"].is_string() || j["id"].get<std::string>().empty()) {
+            throw AGUI_ERROR(parse, ErrorCode::ParseMessageError,
+                             "Message 'id' field must be a non-empty string");
+        }
+        msg.m_id = j["id"].get<std::string>();
+    } else {
+        msg.m_id = UuidGenerator::generate();
     }
 
-    msg._content = j.value("content", "");
-    msg._name = j.value("name", "");
-    msg._toolCallId = j.value("tool_call_id", "");
+    // role is required; defaulting to User would corrupt message history.
+    if (!j.contains("role") || !j["role"].is_string()) {
+        throw AGUI_ERROR(parse, ErrorCode::ParseMessageError,
+                         "Message missing required 'role' field");
+    }
+    msg.m_role = roleFromString(j["role"].get<std::string>());
 
-    // Parse tool calls
-    if (j.contains("tool_calls") && j["tool_calls"].is_array()) {
-        for (const auto& tcJson : j["tool_calls"]) {
-            msg._toolCalls.push_back(ToolCall::fromJson(tcJson));
+    msg.m_content = j.value("content", "");
+    msg.m_name = j.value("name", "");
+    msg.m_toolCallId = j.value("toolCallId", "");
+    msg.m_activityType = j.value("activityType", "");
+
+    if (j.contains("toolCalls") && j["toolCalls"].is_array()) {
+        for (const auto& tcJson : j["toolCalls"]) {
+            msg.m_toolCalls.push_back(ToolCall::fromJson(tcJson));
         }
     }
 
     return msg;
+}
+
+void Message::assignEventDelta(const ToolCallId& toolCallId, const std::string &value) {
+    bool found = false;
+    for (auto &toolCall : m_toolCalls) {
+        if (toolCall.id == toolCallId) {
+            toolCall.function.arguments = value;
+            found = true;
+            break;
+        }
+    }
+    if (!found && !toolCallId.empty()) {
+        Logger::warningf("assignEventDelta: toolCallId '", toolCallId,
+                         "' not found in message ", m_id);
+    }
+}
+
+void Message::appendEventDelta(const ToolCallId& toolCallId, const std::string &delta) {
+    bool found = false;
+    for (auto &toolCall : m_toolCalls) {
+        if (toolCall.id == toolCallId) {
+            toolCall.function.arguments += delta;
+            found = true;
+            break;
+        }
+    }
+    if (!found && !toolCallId.empty()) {
+        Logger::warningf("appendEventDelta: toolCallId '", toolCallId, 
+                         "' not found in message ", m_id);
+    }
 }
 
 // Tool implementation
@@ -210,15 +209,15 @@ Tool Tool::fromJson(const nlohmann::json& j) {
 
 nlohmann::json Context::toJson() const {
     nlohmann::json j;
-    j["type"] = type;
-    j["data"] = data;
+    j["description"] = description;
+    j["value"] = value;
     return j;
 }
 
 Context Context::fromJson(const nlohmann::json& j) {
     Context ctx;
-    ctx.type = j.value("type", "");
-    ctx.data = j.value("data", "");
+    ctx.description = j.value("description", "");
+    ctx.value = j.value("value", "");
     return ctx;
 }
 
@@ -226,33 +225,34 @@ Context Context::fromJson(const nlohmann::json& j) {
 
 nlohmann::json RunAgentInput::toJson() const {
     nlohmann::json j;
-    //j["thread_id"] = threadId;
-    //j["run_id"] = runId;
-    //j["state"] = state;
-    //j["forwarded_props"] = forwardedProps;
-    j["scenario"] = "simple_text";
-    j["delay_ms"] = 50;
+    j["threadId"] = threadId;
+    j["runId"] = runId;
+    if (parentRunId.has_value()) {
+        j["parentRunId"] = parentRunId.value();
+    }
+    j["state"] = state;
+    j["forwardedProps"] = forwardedProps;
 
     // Messages array
     nlohmann::json messagesJson = nlohmann::json::array();
     for (const auto& msg : messages) {
         messagesJson.push_back(msg.toJson());
     }
-    //j["messages"] = messagesJson;
+    j["messages"] = messagesJson;
 
     // Tools array
     nlohmann::json toolsJson = nlohmann::json::array();
     for (const auto& tool : tools) {
         toolsJson.push_back(tool.toJson());
     }
-    //j["tools"] = toolsJson;
+    j["tools"] = toolsJson;
 
     // Context array
     nlohmann::json contextJson = nlohmann::json::array();
     for (const auto& ctx : context) {
         contextJson.push_back(ctx.toJson());
     }
-    //j["context"] = contextJson;
+    j["context"] = contextJson;
 
     return j;
 }
@@ -260,10 +260,13 @@ nlohmann::json RunAgentInput::toJson() const {
 RunAgentInput RunAgentInput::fromJson(const nlohmann::json& j) {
     RunAgentInput input;
 
-    input.threadId = j.value("thread_id", "");
-    input.runId = j.value("run_id", "");
-    input.state = j.value("state", "");
-    input.forwardedProps = j.value("forwarded_props", nlohmann::json::object());
+    input.threadId = j.value("threadId", "");
+    input.runId = j.value("runId", "");
+    if (j.contains("parentRunId") && j["parentRunId"].is_string()) {
+        input.parentRunId = j["parentRunId"].get<std::string>();
+    }
+    input.state = j.value("state", nlohmann::json::object());
+    input.forwardedProps = j.value("forwardedProps", nlohmann::json::object());
 
     // Parse messages
     if (j.contains("messages") && j["messages"].is_array()) {
@@ -296,6 +299,11 @@ RunAgentParams& RunAgentParams::withRunId(const RunId& id) {
     return *this;
 }
 
+RunAgentParams& RunAgentParams::withParentRunId(const RunId& id) {
+    parentRunId = id;
+    return *this;
+}
+
 RunAgentParams& RunAgentParams::addTool(const Tool& tool) {
     tools.push_back(tool);
     return *this;
@@ -322,7 +330,7 @@ RunAgentParams& RunAgentParams::addMessage(const Message& msg) {
 }
 
 RunAgentParams& RunAgentParams::addUserMessage(const std::string& content) {
-    messages.push_back(Message::createUser(content));
+    messages.push_back(Message::create(MessageRole::User, content));
     return *this;
 }
 

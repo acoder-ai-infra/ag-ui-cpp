@@ -1,52 +1,30 @@
 #include "uuid.h"
 
-#include <chrono>
 #include <cstdio>
 #include <random>
 
 namespace agui {
 
-// Initialize static member
-std::atomic<uint32_t> UuidGenerator::_counter(0);
-
-// Global random number generator
 static std::mt19937& getGenerator() {
-    static std::random_device rd;
-    static std::mt19937 generator(rd());
+    thread_local std::mt19937 generator(std::random_device{}());
     return generator;
 }
 
-uint64_t UuidGenerator::getTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-    return static_cast<uint64_t>(millis);
-}
-
-uint32_t UuidGenerator::getRandomNumber() {
-    std::uniform_int_distribution<uint32_t> distribution(0, 0xFFFFFFFF);
-    return distribution(getGenerator());
-}
-
 std::string UuidGenerator::generate() {
-    uint64_t timestamp = getTimestamp();
-    uint32_t random = getRandomNumber();
-    uint32_t count = _counter.fetch_add(1);
+    std::uniform_int_distribution<uint32_t> dist32(0, 0xFFFFFFFF);
+    std::uniform_int_distribution<uint16_t> dist16(0, 0xFFFF);
+    auto& gen = getGenerator();
 
-    // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-    // - 13th character is fixed to '4' (version)
-    // - 17th character's high 2 bits are fixed to '10' (variant)
+    uint32_t p1 = dist32(gen);
+    uint16_t p2 = dist16(gen);
+    uint16_t p3 = static_cast<uint16_t>((dist16(gen) & 0x0FFFu) | 0x4000u);  // version = 4
+    uint16_t p4 = static_cast<uint16_t>((dist16(gen) & 0x3FFFu) | 0x8000u);  // variant = 10xx
+    uint32_t p5h = dist32(gen);
+    uint16_t p5l = dist16(gen);
 
     char uuid[37];
-    snprintf(uuid, sizeof(uuid), "%08x-%04x-4%03x-%04x-%08x%04x",
-             static_cast<uint32_t>(timestamp & 0xFFFFFFFF),
-             static_cast<uint16_t>((timestamp >> 32) & 0xFFFF),
-             static_cast<uint16_t>(random & 0x0FFF),
-             static_cast<uint16_t>(0x8000 | ((random >> 12) & 0x3FFF)),
-             count,
-             static_cast<uint32_t>(random >> 16)
-    );
-
+    snprintf(uuid, sizeof(uuid), "%08x-%04x-%04x-%04x-%08x%04x",
+             p1, p2, p3, p4, p5h, static_cast<uint32_t>(p5l));
     return std::string(uuid);
 }
 

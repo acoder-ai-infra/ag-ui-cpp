@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <deque>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -15,11 +17,18 @@ struct JsonPatchOp {
     std::string path;
     nlohmann::json value;
     std::string from;
+    bool hasValue = false;  // true when the JSON "value" field was explicitly present
 
     JsonPatchOp() : op(PatchOperation::Add) {}
 
     nlohmann::json toJson() const;
     static JsonPatchOp fromJson(const nlohmann::json& j);
+
+    /**
+     * @brief Validate this patch operation (path format and required fields).
+     * @throws AgentError if the operation is invalid.
+     */
+    void validate() const;
 };
 
 class StateManager {
@@ -31,7 +40,7 @@ public:
     void setState(const nlohmann::json& state);
     void applyPatch(const nlohmann::json& patch);
     void applyPatchOp(const JsonPatchOp& op);
-    bool validateState(const nlohmann::json* schema = nullptr) const;
+    bool validateState() const;
     nlohmann::json createSnapshot() const;
     void restoreFromSnapshot(const nlohmann::json& snapshot);
     void clear();
@@ -42,7 +51,7 @@ public:
 
 private:
     nlohmann::json m_currentState;
-    std::vector<nlohmann::json> m_history;
+    std::deque<nlohmann::json> m_history;
     bool m_historyEnabled;
     size_t m_maxHistorySize;
 
@@ -55,8 +64,6 @@ private:
     void applyTest(const std::string& path, const nlohmann::json& value);
     static std::vector<std::string> parsePath(const std::string& path);
     nlohmann::json* getValueAtPath(const std::string& path);
-    const nlohmann::json* getValueAtPath(const std::string& path) const;
-    void setValueAtPath(const std::string& path, const nlohmann::json& value, bool createPath = true);
     void removeValueAtPath(const std::string& path);
 };
 

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <algorithm>
-#include <iostream>
 #include <map>
 #include <memory>
 #include <string>
@@ -30,7 +28,6 @@ public:
     static Message* findLastAssistantMessage(std::vector<Message>& messages);
     
     // Helper functions for tool call management
-    static ToolCall* findToolCallById(Message& message, const ToolCallId& id);
     static const ToolCall* findToolCallById(const Message& message, const ToolCallId& id);
     
     // State management helpers

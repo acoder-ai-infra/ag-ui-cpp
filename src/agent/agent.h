@@ -31,7 +31,7 @@ using AgentErrorCallback = std::function<void(const std::string& error)>;
  */
 class IAgent {
 public:
-    virtual ~IAgent() {}
+    virtual ~IAgent() = default;
 
     /**
      * @brief Run the agent

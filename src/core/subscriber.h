@@ -4,11 +4,10 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
-#if __cplusplus >= 201703L
 #include <optional>
-#endif
 
 #include "core/error.h"
 #include "core/event.h"
@@ -18,32 +17,17 @@
 namespace agui {
 
 struct AgentStateMutation {
-#if __cplusplus >= 201703L
     std::optional<std::vector<Message>> messages;
     std::optional<nlohmann::json> state;
-#else
-    std::unique_ptr<std::vector<Message>> messages;
-    std::unique_ptr<nlohmann::json> state;
-#endif
-    bool stopPropagation;
-
-    AgentStateMutation() : stopPropagation(false) {}
+    bool stopPropagation = false;
 
     AgentStateMutation& withMessages(const std::vector<Message>& msgs) {
-#if __cplusplus >= 201703L
         messages = msgs;
-#else
-        messages.reset(new std::vector<Message>(msgs));
-#endif
         return *this;
     }
 
     AgentStateMutation& withState(const nlohmann::json& s) {
-#if __cplusplus >= 201703L
         state = s;
-#else
-        state.reset(new nlohmann::json(s));
-#endif
         return *this;
     }
 
@@ -53,21 +37,17 @@ struct AgentStateMutation {
     }
 
     bool hasChanges() const {
-#if __cplusplus >= 201703L
         return messages.has_value() || state.has_value();
-#else
-        return (messages != nullptr) || (state != nullptr);
-#endif
     }
 };
 
 struct AgentSubscriberParams {
     const std::vector<Message>* messages = nullptr;
-    const std::string* state = nullptr;
+    const nlohmann::json* state = nullptr;
 
     AgentSubscriberParams() {}
 
-    AgentSubscriberParams(const std::vector<Message>* msgs, const std::string* st)
+    AgentSubscriberParams(const std::vector<Message>* msgs, const nlohmann::json* st)
         : messages(msgs), state(st) {}
 };
 
@@ -176,6 +156,16 @@ public:
         return AgentStateMutation();
     }
 
+    virtual AgentStateMutation onActivitySnapshot(const ActivitySnapshotEvent& event,
+                                                   const AgentSubscriberParams& params) {
+        return AgentStateMutation();
+    }
+
+    virtual AgentStateMutation onActivityDelta(const ActivityDeltaEvent& event,
+                                               const AgentSubscriberParams& params) {
+        return AgentStateMutation();
+    }
+
     virtual AgentStateMutation onRawEvent(const RawEvent& event, const AgentSubscriberParams& params) {
         return AgentStateMutation();
     }
@@ -197,9 +187,18 @@ public:
     virtual void onRunFinalized(const AgentSubscriberParams& params) {}
 };
 
+/**
+ * @class EventHandler
+ * @brief Handles AG-UI protocol events and manages agent state
+ * 
+ * @warning Thread Safety: NOT thread-safe
+ * All methods must be called from the same thread. For multi-threaded use,
+ * provide external synchronization (e.g., std::mutex) or use a message queue
+ * to serialize events to a single processing thread.
+ */
 class EventHandler {
 public:
-    EventHandler(std::vector<Message> messages, const std::string &state,
+    EventHandler(std::vector<Message> messages, const nlohmann::json &state,
                  std::vector<std::shared_ptr<IAgentSubscriber>> subscribers = {});
 
     AgentStateMutation handleEvent(std::unique_ptr<Event> event);
@@ -208,30 +207,42 @@ public:
     void removeSubscriber(std::shared_ptr<IAgentSubscriber> subscriber);
     void clearSubscribers();
 
-    // Process event stream (batch processing)
-    void processEventStream(std::vector<std::unique_ptr<Event>> events,
-                            std::function<void(const AgentStateMutation&)> onMutation,
-                            std::function<void()> onComplete, std::function<void(const AgentError&)> onError);
+    /**
+     * @brief Clear all per-message streaming buffers.
+     *        Call at the start of each run to prevent stale data from a prior run leaking into the next.
+     */
+    void clearBuffers();
+
+    void notifyRunFailed(const AgentError& error);
+    void notifyRunFinalized();
 
     const std::vector<Message>& messages() const { return m_messages; }
-    const std::string& state() const { return m_state; }
+    const nlohmann::json& state() const { return m_state; }
     const std::string& result() const { return m_result; }
 
-    void setResult(const nlohmann::json& result) { m_result = result; }
+    void setResult(const nlohmann::json& result) { m_result = result.dump(); }
+    void clearResult() { m_result.clear(); }
 
 private:
     std::vector<Message> m_messages;
-    std::string m_state;
     std::vector<std::shared_ptr<IAgentSubscriber>> m_subscribers;
+    nlohmann::json m_state = nlohmann::json::object();
     std::string m_result;
 
     std::map<MessageId, std::string> m_textBuffers;
     std::map<ToolCallId, std::string> m_toolCallArgsBuffers;
+    std::string m_thinkingBuffer;
+    MessageId m_lastTextChunkMessageId;
+    ToolCallId m_lastToolCallChunkId;
+
+    // O(1) lookup indices — kept in sync with m_messages
+    std::unordered_map<MessageId, size_t> m_messageIndex;           ///< messageId → m_messages index
+    std::unordered_map<ToolCallId, size_t> m_toolCallToMessageIndex; ///< toolCallId → m_messages index
 
     void handleTextMessageStart(const TextMessageStartEvent& event);
     void handleTextMessageContent(const TextMessageContentEvent& event);
     void handleTextMessageEnd(const TextMessageEndEvent& event);
-
+    void handleTextMessageChunk(const TextMessageChunkEvent& event);
     void handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event);
     void handleThinkingTextMessageContent(const ThinkingTextMessageContentEvent& event);
     void handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent& event);
@@ -239,7 +250,8 @@ private:
     void handleToolCallStart(const ToolCallStartEvent& event);
     void handleToolCallArgs(const ToolCallArgsEvent& event);
     void handleToolCallEnd(const ToolCallEndEvent& event);
-    void handleToolCallResult(const ToolCallResultEvent& event);  // NEW: Add TOOL_CALL_RESULT handler
+    void handleToolCallChunk(const ToolCallChunkEvent& event);
+    void handleToolCallResult(const ToolCallResultEvent& event);
 
     void handleStateSnapshot(const StateSnapshotEvent& event);
     void handleStateDelta(const StateDeltaEvent& event);
@@ -248,6 +260,9 @@ private:
     void handleRunStarted(const RunStartedEvent& event);
     void handleRunFinished(const RunFinishedEvent& event);
     void handleRunError(const RunErrorEvent& event);
+
+    void handleActivitySnapshot(const ActivitySnapshotEvent& event);
+    void handleActivityDelta(const ActivityDeltaEvent& event);
 
     AgentStateMutation notifySubscribers(
         std::function<AgentStateMutation(IAgentSubscriber*, const AgentSubscriberParams&)> notifyFunc);
@@ -258,8 +273,10 @@ private:
     void notifyStateChanged();
 
     Message* findMessage(const MessageId& id);
-    ToolCall* findToolCall(const MessageId& messageId, const ToolCallId& toolCallId);
+    Message* findMessageContainingToolCall(const ToolCallId& toolCallId);
+    void appendEventDelta(const ToolCallId& toolCallId, const std::string &delta);
     AgentSubscriberParams createParams() const;
+    void rebuildMessageIndex();
 };
 
 }  // namespace agui

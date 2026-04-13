@@ -2,6 +2,7 @@
 
 #include <map>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,18 +17,12 @@ using ToolCallId = std::string;
 
 // Forward declarations
 class Message;
-class Tool;
-class Context;
-class ToolCall;
+struct Tool;
+struct Context;
+struct ToolCall;
 
-/**
- * @brief Message role enumeration
- */
-enum class MessageRole { User, Assistant, System, Tool };
+enum class MessageRole { User, Assistant, System, Tool, Developer, Activity, Reasoning };
 
-/**
- * @brief Function call information
- */
 struct FunctionCall {
     std::string name;
     std::string arguments;
@@ -36,10 +31,7 @@ struct FunctionCall {
     FunctionCall(const std::string& n, const std::string& args) : name(n), arguments(args) {}
 };
 
-/**
- * @brief Tool call information
- */
-class ToolCall {
+struct ToolCall {
 public:
     ToolCallId id;
     std::string callType;
@@ -51,54 +43,58 @@ public:
     static ToolCall fromJson(const nlohmann::json& j);
 };
 
-/**
- * @brief Message class
- */
 class Message {
 public:
-    Message();
+    Message() {}
     Message(const MessageId &mid, const MessageRole &role, const std::string &content);
-    ~Message();
+    ~Message() = default;
 
-    static Message createUser(const std::string& content, const std::string& name = "");
-    static Message createAssistant(const std::string& content, const std::string& name = "");
-    static Message createSystem(const std::string& content);
-    static Message createTool(const std::string& toolCallId, const std::string& content);
+    // Role conversion helpers
+    static MessageRole roleFromString(const std::string& roleStr);
+    static std::string roleToString(MessageRole role);
 
-    // Overloaded versions that accept custom message ID
-    static Message createUserWithId(const MessageId& id, const std::string& content, const std::string& name = "");
-    static Message createAssistantWithId(const MessageId& id, const std::string& content, const std::string& name = "");
-    static Message createSystemWithId(const MessageId& id, const std::string& content);
-    static Message createToolWithId(const MessageId& id, const std::string& toolCallId, const std::string& content);
+    // Unified factory — auto-generates ID
+    static Message create(MessageRole role, const std::string& content = "",
+                          const std::string& name = "",
+                          const std::string& toolCallId = "");
 
-    const MessageId& id() const { return _id; }
-    MessageRole role() const { return _role; }
-    const std::string& content() const { return _content; }
-    const std::string& name() const { return _name; }
-    const std::vector<ToolCall>& toolCalls() const { return _toolCalls; }
+    // Unified factory — uses provided ID
+    static Message createWithId(const MessageId& id, MessageRole role,
+                                const std::string& content = "",
+                                const std::string& name = "",
+                                const std::string& toolCallId = "");
 
-    void setRole(const MessageRole &role) {_role = role;}
-    void setContent(const std::string& content) { _content = content; }
-    void appendContent(const std::string& delta) { _content += delta; }
-    void addToolCall(const ToolCall& toolCall) { _toolCalls.push_back(toolCall); }
+    const MessageId& id() const { return m_id; }
+    MessageRole role() const { return m_role; }
+    const std::string& content() const { return m_content; }
+    const std::string& name() const { return m_name; }
+    const std::vector<ToolCall>& toolCalls() const { return m_toolCalls; }
+    const std::string& toolCallId() const { return m_toolCallId; }
+    const std::string& activityType() const { return m_activityType; }
+
+    void setRole(const MessageRole &role) {m_role = role;}
+    void setContent(const std::string& content) { m_content = content; }
+    void setName(const std::string& name) { m_name = name; }
+    void appendContent(const std::string& delta) { m_content += delta; }
+    void addToolCall(const ToolCall& toolCall) { m_toolCalls.push_back(toolCall); }
+    void setActivityType(const std::string& type) { m_activityType = type; }
+    void assignEventDelta(const ToolCallId& toolCallId, const std::string &value);
+    void appendEventDelta(const ToolCallId& toolCallId, const std::string &delta);
 
     nlohmann::json toJson() const;
     static Message fromJson(const nlohmann::json& j);
 
 private:
-    MessageId _id;
-    MessageRole _role;
-    std::string _content;
-    std::string _name;
-    std::vector<ToolCall> _toolCalls;
-    std::string _toolCallId;
+    MessageId m_id;
+    MessageRole m_role = MessageRole::User;
+    std::string m_content;
+    std::string m_name;
+    std::vector<ToolCall> m_toolCalls;
+    std::string m_toolCallId;
+    std::string m_activityType;  // non-empty for MessageRole::Activity messages
 };
 
-/**
- * @brief Tool definition
- */
-class Tool {
-public:
+struct Tool {
     std::string name;
     std::string description;
     nlohmann::json parameters;
@@ -107,44 +103,32 @@ public:
     static Tool fromJson(const nlohmann::json& j);
 };
 
-/**
- * @brief Context information
- */
-class Context {
-public:
-    std::string type;
-    std::string data;
+struct Context {
+    std::string description;
+    std::string value;
 
     nlohmann::json toJson() const;
     static Context fromJson(const nlohmann::json& j);
 };
 
-/**
- * @brief Agent execution input parameters
- */
-class RunAgentInput {
-public:
+struct RunAgentInput {
     ThreadId threadId;
     RunId runId;
-    std::string state;
+    std::optional<RunId> parentRunId;
+    nlohmann::json state = nlohmann::json::object();
     std::vector<Message> messages;
     std::vector<Tool> tools;
     std::vector<Context> context;
-    std::string forwardedProps;
+    nlohmann::json forwardedProps;
 
     nlohmann::json toJson() const;
     static RunAgentInput fromJson(const nlohmann::json& j);
 };
 
-/**
- * @brief Agent execution result
- */
-class RunAgentResult {
-public:
-    ThreadId threadId;
+struct RunAgentResult {
     std::string result;
     std::vector<Message> newMessages;
-    std::string newState;
+    nlohmann::json newState = nlohmann::json::object();
 
     RunAgentResult() = default;
 };
@@ -152,23 +136,22 @@ public:
 // Forward declarations
 class IAgentSubscriber;
 
-/**
- * @brief Agent execution parameters
- */
 class RunAgentParams {
 public:
     RunAgentParams() = default;
 
     ThreadId threadId;
     RunId runId;
+    std::optional<RunId> parentRunId;
     std::vector<Tool> tools;
     std::vector<Context> context;
-    std::string forwardedProps;
+    nlohmann::json forwardedProps;
     std::vector<Message> messages;
-    std::string state;
+    nlohmann::json state;  // null by default — null means "not set, use EventHandler state"
     std::vector<std::shared_ptr<IAgentSubscriber>> subscribers;
 
     RunAgentParams& withRunId(const RunId& id);
+    RunAgentParams& withParentRunId(const RunId& id);
     RunAgentParams& addTool(const Tool& tool);
     RunAgentParams& addContext(const Context& ctx);
     RunAgentParams& withForwardedProps(const nlohmann::json& props);
